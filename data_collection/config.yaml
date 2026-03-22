@@ -1,4 +1,4 @@
-batch_size: 1000
+batch_size: 5000
 delay: 0.01
 output_dir: ../raw_data
 sources:
