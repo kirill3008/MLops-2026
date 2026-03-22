@@ -1,0 +1,6 @@
+batch_size: 1000
+delay: 0.01
+output_dir: raw_data
+sources:
+- insurance/motor_data11-14lats.csv
+- insurance/motor_data14-2018.csv
