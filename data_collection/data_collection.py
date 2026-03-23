@@ -60,7 +60,6 @@ class DataStream:
                     
                     chunk = df.iloc[start_idx:end_idx].copy()
                     
-                    # Apply drift simulation if enabled and it's time
                     chunk = self._apply_drift_simulation(chunk, self.batch_counter + 1)
                     
                     chunk.attrs['batch_info'] = {
@@ -92,7 +91,6 @@ class DataStream:
         logger.info(f"Поток завершен. Всего батчей: {self.batch_counter}")
     
     def _apply_drift_simulation(self, batch_df, batch_number):
-        """Apply controlled drift to batch data (only on whitelisted fields)"""
         if not self.drift_config.get('enabled', False):
             return batch_df
         
@@ -106,47 +104,37 @@ class DataStream:
         
         batch_copy = batch_df.copy()
         
-        # Reset index to ensure proper indexing
         batch_copy.reset_index(drop=True, inplace=True)
         
-        # Only process columns that are in the whitelist
         available_cols = [col for col in whitelist if col in batch_copy.columns]
         
         if not available_cols:
             return batch_copy
         
         if drift_type == 'concept':
-            # Simulate concept drift by changing target variable distribution
             if 'CLAIM_PAID' in available_cols:
-                # Introduce concept drift: make claims more frequent
                 n_rows = len(batch_copy)
                 n_to_change = int(n_rows * drift_strength)
                 
-                # Randomly select rows to change
                 change_indices = np.random.choice(n_rows, n_to_change, replace=False)
                 
-                # In insurance context: make more claims happen
                 batch_copy.loc[change_indices, 'CLAIM_PAID'] = 1
                 
                 
         elif drift_type == 'covariate':
-            # Simulate covariate drift by shifting feature distributions
             numeric_cols = [col for col in available_cols 
                           if batch_copy[col].dtype in [np.number] and col != 'CLAIM_PAID']
             
             if numeric_cols:
-                # Shift numerical features
-                for col in numeric_cols[:3]:  # Shift first 3 numeric columns
+                for col in numeric_cols[:3]: 
                     if batch_copy[col].dtype in [np.number]:
                         shift_amount = drift_strength * batch_copy[col].std()
                         batch_copy[col] += shift_amount
         
         elif drift_type == 'anomaly':
-            # Simulate anomaly drift by introducing outliers
             n_rows = len(batch_copy)
             n_anomalies = int(n_rows * drift_strength)
             
-            # Introduce extreme values in numerical columns (excluding target)
             numeric_cols = [col for col in available_cols 
                           if batch_copy[col].dtype in [np.number] and col != 'CLAIM_PAID']
             
@@ -156,7 +144,6 @@ class DataStream:
                     col_idx = np.random.choice(range(len(numeric_cols)))
                     col = numeric_cols[col_idx]
                     
-                    # Set extreme value (5 standard deviations away)
                     mean_val = batch_copy[col].mean()
                     std_val = batch_copy[col].std()
                     anomaly_val = mean_val + 5 * std_val * (1 if np.random.rand() > 0.5 else -1)
