@@ -125,7 +125,8 @@ class MLOpsPipeline:
             data_stream = DataStream(
                 self.config.data_collection['sources'], 
                 self.config.data_collection['batch_size'], 
-                self.config.data_collection['delay']
+                self.config.data_collection['delay'],
+                self.config.data_collection.get('drift_simulation', {})
             )
             
             batch_count = 0
@@ -795,7 +796,8 @@ class MLOpsPipeline:
         data_stream = DataStream(
             self.config.data_collection['sources'],
             self.config.data_collection['batch_size'], 
-            self.config.data_collection['delay']
+            self.config.data_collection['delay'],
+            self.config.data_collection.get('drift_simulation', {})
         )
         
         batch_counter = 0

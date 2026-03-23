@@ -106,6 +106,9 @@ class DataStream:
         
         batch_copy = batch_df.copy()
         
+        # Reset index to ensure proper indexing
+        batch_copy.reset_index(drop=True, inplace=True)
+        
         # Only process columns that are in the whitelist
         available_cols = [col for col in whitelist if col in batch_copy.columns]
         
@@ -121,8 +124,10 @@ class DataStream:
                 
                 # Randomly select rows to change
                 change_indices = np.random.choice(n_rows, n_to_change, replace=False)
+                
                 # In insurance context: make more claims happen
                 batch_copy.loc[change_indices, 'CLAIM_PAID'] = 1
+                
                 
         elif drift_type == 'covariate':
             # Simulate covariate drift by shifting feature distributions
