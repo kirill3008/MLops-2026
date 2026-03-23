@@ -113,12 +113,16 @@ def evaluate_reference_rules_on_batch(parsed_df: pd.DataFrame, cfg: Dict[str, An
 
     df_res = pd.DataFrame(results)
     if df_res.empty:
-        return {"enabled": True, "n_rules_checked": 0, "any_issue": False, "rules": []}
-
-    # overall flags
-    any_issue = bool((df_res["flag_conf_drop"] | df_res["flag_support_drop"] | df_res["flag_conf_abs"]).any())
+        any_issue = False
+        n_rules_checked = 0
+        rules_data = []
+    else:
+        # overall flags
+        any_issue = bool((df_res["flag_conf_drop"] | df_res["flag_support_drop"] | df_res["flag_conf_abs"]).any())
+        n_rules_checked = int(len(df_res))
+        rules_data = df_res.to_dict(orient="records")
     
-    # Initialize drift detector if not already done
+    # Initialize drift detector if not already done (always do this regardless of rule results)
     if not hasattr(evaluate_reference_rules_on_batch, 'drift_detector'):
         config = get_config()
         # Initialize with the current batch as reference data
@@ -138,18 +142,61 @@ def evaluate_reference_rules_on_batch(parsed_df: pd.DataFrame, cfg: Dict[str, An
     
     drift_results = drift_detector.detect_drift(parsed_df, batch_info)
     
-    # Add drift information to results
+    # Construct result
     result = {
         "enabled": True,
         "n_rows": n_rows,
-        "n_rules_checked": int(len(df_res)),
+        "n_rules_checked": n_rules_checked,
         "any_issue": any_issue,
-        "rules": df_res.to_dict(orient="records"),
+        "rules": rules_data,
         "drift_analysis": drift_results,
         "drift_detected": drift_results.get('drift_detected', False),
         "drift_type": drift_results.get('drift_type', None),
         "drift_confidence": drift_results.get('confidence', 0.0)
     }
+    
+    # Save consistency report for this batch if batch_info is provided
+    if batch_info and 'batch_num' in batch_info:
+        try:
+            batch_id = f"batch_{batch_info['batch_num']:03d}"
+            
+            # Ensure artifact directories exist first
+            artifacts_dir = Path(cfg["dq"]["io"].get("artifacts_dir", "artifacts"))
+            artifacts_dir.mkdir(parents=True, exist_ok=True)  # Create main artifacts dir
+            
+            dq_dir = artifacts_dir / "dq"
+            dq_dir.mkdir(parents=True, exist_ok=True)
+            rules_dir = artifacts_dir / "rules"
+            rules_dir.mkdir(parents=True, exist_ok=True)
+            
+            print(f"DEBUG: Creating artifacts for batch {batch_id} in {artifacts_dir}")
+            
+            # Save consistency report
+            consistency_path = save_consistency_report(batch_id, result, cfg)
+            print(f"DEBUG: Saved consistency report to {consistency_path}")
+            
+            # Compute and save data quality metrics
+            metrics_before = compute_dq_metrics(parsed_df, cfg)
+            flags_before = quality_flags(metrics_before, cfg)
+            
+            # Clean the data
+            cleaned = clean_batch(parsed_df, cfg)
+            metrics_after = compute_dq_metrics(cleaned, cfg)
+            flags_after = quality_flags(metrics_after, cfg)
+            
+            dq_path = dq_dir / f"{batch_id}_dq.json"
+            with open(dq_path, "w", encoding="utf-8") as f:
+                json.dump(
+                    {"before": metrics_before, "after": metrics_after, "flags_before": flags_before, "flags_after": flags_after},
+                    f, ensure_ascii=False, indent=2
+                )
+            print(f"DEBUG: Saved DQ metrics to {dq_path}")
+            
+        except Exception as e:
+            # Log the error but don't fail the entire process
+            print(f"ERROR: Could not save artifacts for batch {batch_info.get('batch_num', 'unknown')}: {e}")
+            import traceback
+            traceback.print_exc()
     
     return result
 

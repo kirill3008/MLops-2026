@@ -505,10 +505,13 @@ class MLOpsPipeline:
         
         try:
             # Try to read the latest data quality reports
-            artifacts_dir = "artifacts/dq"
-            if os.path.exists(artifacts_dir):
+            artifacts_dir = self.config.data_analysis["dq"]["io"].get("artifacts_dir", "artifacts")
+            dq_dir = os.path.join(artifacts_dir, "dq")
+            rules_dir = os.path.join(artifacts_dir, "rules")
+            
+            if os.path.exists(dq_dir):
                 dq_files = sorted(
-                    [f for f in os.listdir(artifacts_dir) if f.endswith('.json')],
+                    [f for f in os.listdir(dq_dir) if f.endswith('.json')],
                     reverse=True
                 )
                 
@@ -533,7 +536,6 @@ class MLOpsPipeline:
                         dq_metrics['data_quality_passed'] = not dq_data['flags_after'].get('any_issue', True)
             
             # Collect consistency rule metrics
-            rules_dir = "artifacts/rules"
             if os.path.exists(rules_dir):
                 consistency_files = sorted(
                     [f for f in os.listdir(rules_dir) if f.startswith('consistency_') and f.endswith('.json')],
@@ -613,19 +615,38 @@ class MLOpsPipeline:
         
         try:
             # Look for drift reports in artifacts directory
-            artifacts_dir = "artifacts"
+            artifacts_dir = self.config.data_analysis["dq"]["io"].get("artifacts_dir", "artifacts")
+            rules_dir = os.path.join(artifacts_dir, "rules")
+            
             if os.path.exists(artifacts_dir):
                 drift_files = sorted(
                     [f for f in os.listdir(artifacts_dir) if f.startswith('drift_report_') and f.endswith('.json')],
                     reverse=True
                 )
                 
+                # Also look for consistency reports which contain drift analysis
+                consistency_files = sorted(
+                    [f for f in os.listdir(rules_dir) if f.startswith('consistency_') and f.endswith('.json')],
+                    reverse=True
+                )
+                
+                # Use drift reports if available, otherwise fall back to consistency reports
                 if drift_files:
                     # Load the most recent drift report
                     latest_drift_file = os.path.join(artifacts_dir, drift_files[0])
                     with open(latest_drift_file, 'r') as f:
                         drift_data = json.load(f)
-                    
+                elif consistency_files:
+                    # Load the most recent consistency report and extract drift analysis
+                    latest_consistency_file = os.path.join(rules_dir, consistency_files[0])
+                    with open(latest_consistency_file, 'r') as f:
+                        consistency_data = json.load(f)
+                    drift_data = consistency_data.get('drift_analysis', {})
+                    drift_data['batch_info'] = {'batch_num': consistency_files[0].replace('consistency_batch_', '').replace('.json', '')}
+                else:
+                    drift_data = {}
+                
+                if drift_data:
                     # Extract key drift information
                     drift_metrics.update({
                         'drift_detected': drift_data.get('drift_detected', False),
@@ -663,6 +684,7 @@ class MLOpsPipeline:
                     all_drift_reports = []
                     total_batches_with_drift = 0
                     
+                    # Collect from drift reports
                     for drift_file in drift_files[:10]:  # Last 10 reports
                         file_path = os.path.join(artifacts_dir, drift_file)
                         with open(file_path, 'r') as f:
@@ -670,6 +692,19 @@ class MLOpsPipeline:
                             all_drift_reports.append(report)
                             if report.get('drift_detected', False):
                                 total_batches_with_drift += 1
+                    
+                    # Collect from consistency reports (if drift reports are insufficient)
+                    if len(all_drift_reports) < 5:
+                        for consistency_file in consistency_files[:10]:
+                            file_path = os.path.join(rules_dir, consistency_file)
+                            with open(file_path, 'r') as f:
+                                consistency_data = json.load(f)
+                                drift_report = consistency_data.get('drift_analysis', {})
+                                if drift_report:
+                                    drift_report['batch_info'] = {'batch_num': consistency_file.replace('consistency_batch_', '').replace('.json', '')}
+                                    all_drift_reports.append(drift_report)
+                                    if drift_report.get('drift_detected', False):
+                                        total_batches_with_drift += 1
                     
                     drift_metrics.update({
                         'total_drift_reports_analyzed': len(all_drift_reports),
