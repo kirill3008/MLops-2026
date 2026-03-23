@@ -2,6 +2,9 @@ import json
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 from datetime import datetime
+import logging
+
+logger = logging.getLogger(__name__)
 
 import numpy as np
 import pandas as pd
@@ -169,11 +172,8 @@ def evaluate_reference_rules_on_batch(parsed_df: pd.DataFrame, cfg: Dict[str, An
             rules_dir = artifacts_dir / "rules"
             rules_dir.mkdir(parents=True, exist_ok=True)
             
-            print(f"DEBUG: Creating artifacts for batch {batch_id} in {artifacts_dir}")
-            
             # Save consistency report
             consistency_path = save_consistency_report(batch_id, result, cfg)
-            print(f"DEBUG: Saved consistency report to {consistency_path}")
             
             # Compute and save data quality metrics
             metrics_before = compute_dq_metrics(parsed_df, cfg)
@@ -190,13 +190,10 @@ def evaluate_reference_rules_on_batch(parsed_df: pd.DataFrame, cfg: Dict[str, An
                     {"before": metrics_before, "after": metrics_after, "flags_before": flags_before, "flags_after": flags_after},
                     f, ensure_ascii=False, indent=2
                 )
-            print(f"DEBUG: Saved DQ metrics to {dq_path}")
             
         except Exception as e:
             # Log the error but don't fail the entire process
-            print(f"ERROR: Could not save artifacts for batch {batch_info.get('batch_num', 'unknown')}: {e}")
-            import traceback
-            traceback.print_exc()
+            logger.warning(f"Warning: Could not save artifacts for batch {batch_info.get('batch_num', 'unknown')}: {e}")
     
     return result
 

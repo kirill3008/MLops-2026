@@ -517,7 +517,7 @@ class MLOpsPipeline:
                 
                 if dq_files:
                     # Load the most recent data quality report
-                    latest_dq_file = os.path.join(artifacts_dir, dq_files[0])
+                    latest_dq_file = os.path.join(dq_dir, dq_files[0])
                     with open(latest_dq_file, 'r') as f:
                         dq_data = json.load(f)
                     
