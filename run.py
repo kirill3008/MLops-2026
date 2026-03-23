@@ -15,7 +15,6 @@ import argparse
 import pandas as pd
 import time
 import logging
-import yaml
 import json
 from datetime import datetime
 from model_pipeline.model_pipeline import DataPreprocessor
@@ -23,9 +22,10 @@ from model_pipeline.model_pipeline import DataPreprocessor
 # Add project directories to path
 sys.path.extend(['data_collection', 'data_analyzer', 'model_pipeline'])
 
-from data_collection.data_collection import DataStream, load_config as load_dc_config
-from data_analyzer.dq_pipeline import evaluate_reference_rules_on_batch, load_yaml
-from model_pipeline.model_pipeline import load_config, ModelPipeline, DataLoader
+from data_collection.data_collection import DataStream
+from data_analyzer.dq_pipeline import evaluate_reference_rules_on_batch
+from model_pipeline.model_pipeline import ModelPipeline
+from config import get_config
 
 
 def setup_logging():
@@ -52,37 +52,12 @@ class MLOpsPipeline:
         self.best_model = None
         
     def _load_main_config(self):
-        """Load main configuration"""
-        config_path = "pipeline_config.yaml"
-        if not os.path.exists(config_path):
-            config = {
-                "data_collection": {
-                    "config_path": "data_collection/config.yaml"
-                },
-                "data_analysis": {
-                    "config_path": "data_analyzer/config.yaml"
-                },
-                "model_training": {
-                    "config_path": "model_pipeline/model_config.yaml"
-                },
-                "model_registry": {"path": "model_registry"},
-                "performance_thresholds": {
-                    "accuracy": 0.7,
-                    "f1": 0.65,
-                    "inference_time": 1.0,
-                    "memory_limit_mb": 500
-                }
-            }
-            with open(config_path, 'w', encoding='utf-8') as f:
-                yaml.dump(config, f, default_flow_style=False, allow_unicode=True)
-            logger.info(f"Created main config: {config_path}")
-        
-        with open(config_path, 'r', encoding='utf-8') as f:
-            return yaml.safe_load(f)
+        """Load main configuration using unified Config class"""
+        return get_config()
     
     def inference_mode(self, file_path: str):
         """Apply the best model to external data"""
-        logger.info(f"=== INFERENCE MODE ===")
+        logger.info("=== INFERENCE MODE ===")
         logger.info(f"Input file: {file_path}")
         
         if not os.path.exists(file_path):
@@ -146,9 +121,12 @@ class MLOpsPipeline:
                     logger.error("No trained models found. Run pipeline mode first to train initial models.")
                     return False
             
-            # Load and analyze new data
-            dc_config = load_dc_config(self.config['data_collection']['config_path'])
-            data_stream = DataStream(dc_config['sources'], dc_config['batch_size'], dc_config['delay'])
+            # Use data collection config from consolidated config instead of loading from file
+            data_stream = DataStream(
+                self.config.data_collection['sources'], 
+                self.config.data_collection['batch_size'], 
+                self.config.data_collection['delay']
+            )
             
             batch_count = 0
             processed_count = 0
@@ -166,18 +144,21 @@ class MLOpsPipeline:
                 # Get batch info from attrs if available
                 batch_info = batch.attrs.get('batch_info', {'batch_num': batch_count})
                 
-                # Data quality analysis
-                dq_config = load_yaml(self.config['data_analysis']['config_path'])
-                dq_results = evaluate_reference_rules_on_batch(batch, dq_config)
+                # Data quality analysis with batch information
+                dq_results = evaluate_reference_rules_on_batch(
+                    batch, 
+                    self.config.data_analysis,
+                    batch_info={'batch_num': batch_count, 'timestamp': datetime.now().isoformat()}
+                )
                 
                 if dq_results.get('enabled', False) and not dq_results.get('error'):
-                    logger.info(f"  Data quality: PASSED")
+                    logger.info("  Data quality: PASSED")
                 else:
                     logger.warning(f"  Data quality: ISSUES - {dq_results.get('error', 'Unknown')}")
                 
                 # Update model pipeline
                 if self.model_pipeline is None:
-                    self.model_pipeline = ModelPipeline(self.config['model_training']['config_path'])
+                    self.model_pipeline = ModelPipeline()
                 
                 # Use incremental_update method which requires proper data preprocessing
                 try:
@@ -219,8 +200,11 @@ class MLOpsPipeline:
             "timestamp": datetime.now().isoformat(),
             "model_metrics": self._collect_model_metrics(),
             "data_quality": self._collect_data_quality(),
+            "data_drift": self._collect_drift_metrics(),  # Add drift monitoring
             "performance": self._collect_performance_metrics(),
-            "hyperparameters": self._collect_hyperparameters()
+            "hyperparameters": self._collect_hyperparameters(),
+            "model_selection_history": self._collect_model_selection_history(),
+            "system_info": self._collect_system_info()
         }
         
         # Convert numpy types to JSON-serializable types
@@ -241,15 +225,204 @@ class MLOpsPipeline:
         with open(report_path, 'w', encoding='utf-8') as f:
             json.dump(summary_data, f, indent=2, ensure_ascii=False)
         
-        # Generate visual summary
-        self._generate_visual_summary(summary_data)
+        # Generate comprehensive visual dashboard with plots
+        self._generate_comprehensive_dashboard(summary_data, report_path)
         
         logger.info(f"Summary report generated: {report_path}")
         return report_path
+
+    def _generate_comprehensive_dashboard(self, summary_data, report_path):
+        """Generate detailed visual dashboard with multiple plots"""
+        try:
+            import matplotlib.pyplot as plt
+            import seaborn as sns
+            from matplotlib import gridspec
+            
+            # Create a multi-panel dashboard
+            fig = plt.figure(figsize=(16, 12))
+            gs = gridspec.GridSpec(3, 2, figure=fig)
+            
+            # Plot 1: Performance metrics over time
+            ax1 = fig.add_subplot(gs[0, 0])
+            if 'performance_file' in summary_data.get('performance', {}):
+                try:
+                    perf_df = pd.read_csv(summary_data['performance']['performance_file'])
+                    if not perf_df.empty and 'batch' in perf_df.columns and 'accuracy' in perf_df.columns:
+                        sns.lineplot(data=perf_df, x='batch', y='accuracy', ax=ax1, label='Accuracy')
+                        if 'f1' in perf_df.columns:
+                            sns.lineplot(data=perf_df, x='batch', y='f1', ax=ax1, label='F1 Score')
+                        ax1.set_title('Model Performance Over Batches')
+                        ax1.set_xlabel('Batch Number')
+                        ax1.set_ylabel('Metric Value')
+                        ax1.legend()
+                        ax1.grid(True, alpha=0.3)
+                except Exception:
+                    ax1.text(0.5, 0.5, 'No performance data available', 
+                            ha='center', va='center', transform=ax1.transAxes)
+                    ax1.set_title('Model Performance (No Data)')
+            
+            # Plot 2: Data Quality Trends
+            ax2 = fig.add_subplot(gs[0, 1])
+            # Mock data quality trend for demonstration
+            dq_metrics = ['missing_total_ratio', 'duplicate_ratio', 'invalid_ratio']
+            available_dq = [m for m in dq_metrics if m in summary_data.get('data_quality', {})]
+            
+            if available_dq:
+                values = [summary_data['data_quality'][m] for m in available_dq]
+                ax2.bar(available_dq, values, color=['red', 'orange', 'yellow'])
+                ax2.set_title('Current Data Quality Metrics')
+                ax2.set_ylabel('Ratio')
+                ax2.tick_params(axis='x', rotation=45)
+                ax2.grid(True, alpha=0.3)
+            else:
+                ax2.text(0.5, 0.5, 'No data quality metrics available', 
+                        ha='center', va='center', transform=ax2.transAxes)
+                ax2.set_title('Data Quality Metrics (No Data)')
+            
+            # Plot 3: System Resource Usage
+            ax3 = fig.add_subplot(gs[1, 0])
+            if 'memory_usage_percent' in summary_data.get('performance', {}):
+                memory_labels = ['Used', 'Available']
+                memory_values = [
+                    summary_data['performance']['memory_usage_percent'],
+                    100 - summary_data['performance']['memory_usage_percent']
+                ]
+                ax3.pie(memory_values, labels=memory_labels, autopct='%1.1f%%', startangle=90)
+                ax3.set_title('Memory Usage')
+            else:
+                ax3.text(0.5, 0.5, 'No memory usage data available', 
+                        ha='center', va='center', transform=ax3.transAxes)
+                ax3.set_title('Memory Usage (No Data)')
+            
+            # Plot 4: Data Drift Monitoring
+            ax4 = fig.add_subplot(gs[1, 1])
+            if summary_data.get('data_drift') and summary_data['data_drift'].get('status') != 'no_drift_data_available':
+                drift_data = summary_data['data_drift']
+                
+                # Create drift status indicators
+                drift_status = [
+                    ('Feature Drift', drift_data.get('affected_features_count', 0) > 0),
+                    ('Concept Drift', drift_data.get('concept_shift_confidence', 0) > 0.1),
+                    ('Quality Drift', drift_data.get('quality_issues', False))
+                ]
+                
+                labels = [status[0] for status in drift_status]
+                status_values = [1 if status[1] else 0 for status in drift_status]
+                colors = ['red' if status[1] else 'green' for status in drift_status]
+                
+                bars = ax4.bar(labels, status_values, color=colors, alpha=0.7)
+                ax4.set_title('Data Drift Status')
+                ax4.set_ylabel('Drift Detected (0/1)')
+                ax4.set_ylim(0, 1.2)
+                ax4.tick_params(axis='x', rotation=45)
+                
+                # Add confidence value if available
+                if drift_data.get('confidence', 0) > 0:
+                    ax4.text(0.5, 1.1, f'Confidence: {drift_data["confidence"]:.3f}', 
+                            ha='center', va='center', fontsize=10, 
+                            bbox=dict(boxstyle="round,pad=0.3", facecolor="lightblue", alpha=0.7))
+                
+                # Add drift rate if available
+                if drift_data.get('drift_rate', 0) > 0:
+                    ax4.text(1.5, 1.1, f'Drift Rate: {drift_data["drift_rate"]:.2f}', 
+                            ha='center', va='center', fontsize=10,
+                            bbox=dict(boxstyle="round,pad=0.3", facecolor="lightyellow", alpha=0.7))
+            else:
+                ax4.text(0.5, 0.5, 'No drift data available', 
+                        ha='center', va='center', transform=ax4.transAxes)
+                ax4.set_title('Data Drift Status (No Data)')
+            
+            # Plot 5: Model Selection History (move to new position)
+            ax5 = fig.add_subplot(gs[2, 0])
+            ax5.text(0.5, 0.5, 'Model Selection Trend Graph\n(Enhanced Reporting)', 
+                    ha='center', va='center', transform=ax5.transAxes)
+            ax5.set_title('Model Performance Evolution')
+            ax5.axis('off')
+            
+            # Plot 6: Recent Batch Statistics
+            ax6 = fig.add_subplot(gs[2, 1:])
+            stats = [
+                ('Total Batches', summary_data['performance'].get('total_batches', 0)),
+                ('Avg Accuracy', summary_data['performance'].get('avg_accuracy', 0)),
+                ('Avg F1 Score', summary_data['performance'].get('avg_f1', 0)),
+                ('Data Quality Passed', summary_data['data_quality'].get('data_quality_passed', False)),
+                ('Consistency Issues', summary_data['data_quality'].get('consistency_issues', False)),
+                ('Drift Detected', summary_data['data_drift'].get('drift_detected', False) if summary_data.get('data_drift') else False)
+            ]
+            
+            labels = [s[0] for s in stats]
+            values = [s[1] for s in stats]
+            
+            ax6.barh(labels, values, color=['blue', 'green', 'orange', 'red', 'purple', 'brown'])
+            ax6.set_title('System Performance Summary')
+            ax6.set_xlabel('Value')
+            for i, v in enumerate(values):
+                ax6.text(v + 0.01, i, f'{v}', va='center', fontsize=10)
+            
+            plt.tight_layout()
+            
+            # Save dashboard
+            dashboard_path = report_path.replace('.json', '_dashboard.png')
+            plt.savefig(dashboard_path, dpi=150, bbox_inches='tight')
+            plt.close()
+            
+            logger.info(f"Visual dashboard saved: {dashboard_path}")
+            
+        except ImportError:
+            logger.warning("Matplotlib not available, skipping visual dashboard")
+        except Exception as e:
+            logger.warning(f"Could not generate visual dashboard: {e}")
+
+    def _collect_model_selection_history(self):
+        """Collect model selection history for meta-learning analysis"""
+        selection_history = []
+        
+        try:
+            model_dir = self.config.model_registry.get('path', 'model_registry')
+            if os.path.exists(model_dir):
+                model_files = [f for f in os.listdir(model_dir) if f.endswith('.json') and f != 'best_model.json']
+                
+                for model_file in sorted(model_files)[-5:]:  # Last 5 models
+                    with open(os.path.join(model_dir, model_file), 'r') as f:
+                        model_info = json.load(f)
+                    
+                    selection_history.append({
+                        'model_name': model_info.get('model_name', 'unknown'),
+                        'timestamp': model_info.get('timestamp', ''),
+                        'accuracy': model_info.get('metrics', {}).get('accuracy', 0),
+                        'f1_score': model_info.get('metrics', {}).get('f1', 0)
+                    })
+        except Exception as e:
+            logger.warning(f"Could not collect model selection history: {e}")
+        
+        return selection_history
+
+    def _collect_system_info(self):
+        """Collect system information and configuration"""
+        system_info = {
+            "python_version": sys.version,
+            "platform": sys.platform,
+            "working_directory": os.getcwd(),
+            "config_file": self.config_file if hasattr(self, 'config_file') else 'unified_config.yaml',
+            "available_memory_gb": None,
+            "cpu_count": None
+        }
+        
+        try:
+            import psutil
+            memory = psutil.virtual_memory()
+            system_info.update({
+                "available_memory_gb": memory.available / (1024**3),
+                "cpu_count": psutil.cpu_count()
+            })
+        except ImportError:
+            pass
+        
+        return system_info
     
     def _load_best_model(self):
         """Load the best performing model from registry"""
-        registry_path = self.config['model_registry']['path']
+        registry_path = self.config.model_registry['path']
         if not os.path.exists(registry_path):
             logger.warning("Model registry not found")
             return
@@ -305,7 +478,7 @@ class MLOpsPipeline:
         
         # Get model registry statistics
         try:
-            metadata_path = os.path.join(self.config['model_registry']['path'], 'models_metadata.json')
+            metadata_path = os.path.join(self.config.model_registry['path'], 'models_metadata.json')
             if os.path.exists(metadata_path):
                 with open(metadata_path, 'r') as f:
                     registry_data = json.load(f)
@@ -434,6 +607,139 @@ class MLOpsPipeline:
         
         return perf_metrics if perf_metrics else {"status": "no_performance_data_available"}
     
+    def _collect_drift_metrics(self):
+        """Collect data drift monitoring metrics from artifacts"""
+        drift_metrics = {}
+        
+        try:
+            # Look for drift reports in artifacts directory
+            artifacts_dir = "artifacts"
+            if os.path.exists(artifacts_dir):
+                drift_files = sorted(
+                    [f for f in os.listdir(artifacts_dir) if f.startswith('drift_report_') and f.endswith('.json')],
+                    reverse=True
+                )
+                
+                if drift_files:
+                    # Load the most recent drift report
+                    latest_drift_file = os.path.join(artifacts_dir, drift_files[0])
+                    with open(latest_drift_file, 'r') as f:
+                        drift_data = json.load(f)
+                    
+                    # Extract key drift information
+                    drift_metrics.update({
+                        'drift_detected': drift_data.get('drift_detected', False),
+                        'drift_type': drift_data.get('drift_type', 'none'),
+                        'confidence': drift_data.get('confidence', 0.0),
+                        'batch_number': drift_data.get('batch_info', {}).get('batch_num', 0),
+                        'affected_features_count': len(drift_data.get('affected_features', [])),
+                        'timestamp': drift_data.get('timestamp', '')
+                    })
+                    
+                    # Add affected features details
+                    if drift_data.get('affected_features'):
+                        drift_metrics['affected_features'] = [
+                            {
+                                'feature': feature.get('feature', ''),
+                                'drift_type': feature.get('drift_type', ''),
+                                'confidence': feature.get('confidence', 0.0)
+                            }
+                            for feature in drift_data['affected_features']
+                        ]
+                    
+                    # Add concept drift details if available
+                    if drift_data.get('concept_shift_confidence') is not None:
+                        drift_metrics['concept_shift_confidence'] = drift_data['concept_shift_confidence']
+                        drift_metrics['target_distribution_change'] = drift_data.get('target_distribution_change', 0.0)
+                    
+                    # Add quality drift details
+                    if drift_data.get('quality_issues') is not None:
+                        drift_metrics.update({
+                            'quality_issues': drift_data['quality_issues'],
+                            'quality_anomalies': drift_data.get('anomalies', [])
+                        })
+                    
+                    # Calculate drift statistics from all available reports
+                    all_drift_reports = []
+                    total_batches_with_drift = 0
+                    
+                    for drift_file in drift_files[:10]:  # Last 10 reports
+                        file_path = os.path.join(artifacts_dir, drift_file)
+                        with open(file_path, 'r') as f:
+                            report = json.load(f)
+                            all_drift_reports.append(report)
+                            if report.get('drift_detected', False):
+                                total_batches_with_drift += 1
+                    
+                    drift_metrics.update({
+                        'total_drift_reports_analyzed': len(all_drift_reports),
+                        'batches_with_drift': total_batches_with_drift,
+                        'drift_rate': total_batches_with_drift / len(all_drift_reports) if all_drift_reports else 0,
+                        'drift_history_summary': self._summarize_drift_history(all_drift_reports)
+                    })
+                    
+        except Exception as e:
+            logger.warning(f"Could not collect drift metrics: {e}")
+        
+        return drift_metrics if drift_metrics else {"status": "no_drift_data_available"}
+    
+    def _summarize_drift_history(self, drift_reports):
+        """Summarize drift history across multiple batches"""
+        if not drift_reports:
+            return {}
+        
+        summary = {
+            'total_batches': len(drift_reports),
+            'drift_types_observed': [],
+            'most_frequent_affected_features': {},
+            'average_confidence': 0.0,
+            'drift_trend': 'stable'
+        }
+        
+        # Count drift types
+        drift_type_counts = {}
+        feature_counts = {}
+        total_confidence = 0.0
+        confidence_count = 0
+        
+        for report in drift_reports:
+            # Track drift types
+            drift_type = report.get('drift_type')
+            if drift_type:
+                drift_type_counts[drift_type] = drift_type_counts.get(drift_type, 0) + 1
+            
+            # Track affected features
+            if report.get('affected_features'):
+                for feature in report['affected_features']:
+                    feature_name = feature.get('feature', '')
+                    if feature_name:
+                        feature_counts[feature_name] = feature_counts.get(feature_name, 0) + 1
+            
+            # Track confidence
+            confidence = report.get('confidence', 0)
+            if confidence > 0:
+                total_confidence += confidence
+                confidence_count += 1
+        
+        summary['drift_types_observed'] = list(drift_type_counts.keys())
+        summary['most_frequent_affected_features'] = dict(
+            sorted(feature_counts.items(), key=lambda x: x[1], reverse=True)[:5]
+        )
+        summary['average_confidence'] = total_confidence / confidence_count if confidence_count > 0 else 0.0
+        
+        # Simple trend analysis (last 5 batches)
+        recent_reports = drift_reports[-5:]
+        recent_drift_count = sum(1 for r in recent_reports if r.get('drift_detected', False))
+        
+        if recent_drift_count >= 3:
+            summary['drift_trend'] = 'increasing'
+        elif recent_drift_count <= 1:
+            summary['drift_trend'] = 'decreasing'
+        else:
+            summary['drift_trend'] = 'stable'
+        
+        return summary
+    
     def _collect_hyperparameters(self):
         """Collect hyperparameter information"""
         if self.model_pipeline and hasattr(self.model_pipeline, 'best_params'):
@@ -447,13 +753,15 @@ class MLOpsPipeline:
         logger.info(f"Update model every: {update_every} batches")
         logger.info(f"Maximum batches to process: {max_batches}")
         
-        # Initialize pipeline - pass the config path, not the loaded config
-        model_config_path = self.config['model_training']['config_path']
-        pipeline = ModelPipeline(model_config_path)
+        # Initialize pipeline using consolidated config (no parameter needed)
+        pipeline = ModelPipeline()
         
-        # Load data collection config
-        dc_config = load_dc_config(self.config['data_collection']['config_path'])
-        data_stream = DataStream(dc_config['sources'], dc_config['batch_size'], dc_config['delay'])
+        # Use data collection config from consolidated config for DataStream
+        data_stream = DataStream(
+            self.config.data_collection['sources'],
+            self.config.data_collection['batch_size'], 
+            self.config.data_collection['delay']
+        )
         
         batch_counter = 0
         performance_history = []
@@ -464,15 +772,14 @@ class MLOpsPipeline:
         for i, batch in enumerate(data_stream.stream()):
             if i >= initial_batches:
                 break
-                
+
             logger.info(f"Processing initial batch {i+1}/{initial_batches}: {len(batch)} rows")
             
-            # Data quality check
-            dq_config = load_yaml(self.config['data_analysis']['config_path'])
-            dq_results = evaluate_reference_rules_on_batch(batch, dq_config)
+            # Use data analysis config from consolidated config instead of loading from file
+            dq_results = evaluate_reference_rules_on_batch(batch, self.config.data_analysis)
             
             if dq_results.get('enabled', False) and not dq_results.get('error'):
-                logger.info(f"  Data quality: PASSED")
+                logger.info("  Data quality: PASSED")
             else:
                 logger.warning(f"  Data quality: ISSUES - {dq_results.get('error', 'Unknown')}")
             
@@ -484,7 +791,6 @@ class MLOpsPipeline:
             return False
         
         # Combine initial batches and train - SAVE TO TEMP FILE for training
-        import tempfile
         temp_data_dir = "temp_training_data"
         os.makedirs(temp_data_dir, exist_ok=True)
         temp_data_file = os.path.join(temp_data_dir, f"initial_data_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv")
@@ -543,11 +849,15 @@ class MLOpsPipeline:
             batch_num = batch_counter + i + 1
             logger.info(f"\nProcessing batch {batch_num}: {len(batch)} rows")
             
-            # Data quality check
-            dq_results = evaluate_reference_rules_on_batch(batch, dq_config)
+            # Data quality check using consolidated config with batch information
+            dq_results = evaluate_reference_rules_on_batch(
+                batch, 
+                self.config.data_analysis,
+                batch_info={'batch_num': batch_num, 'timestamp': datetime.now().isoformat()}
+            )
             
             if dq_results.get('enabled', False) and not dq_results.get('error'):
-                logger.info(f"  Data quality: PASSED")
+                logger.info("  Data quality: PASSED")
             else:
                 logger.warning(f"  Data quality: ISSUES - {dq_results.get('error', 'Unknown')}")
             
@@ -571,7 +881,7 @@ class MLOpsPipeline:
                             accuracy = accuracy_score(y_batch, predictions)
                             f1 = f1_score(y_batch, predictions, average='weighted')
                             
-                            logger.info(f"  Prediction metrics:")
+                            logger.info("  Prediction metrics:")
                             logger.info(f"    Accuracy: {accuracy:.4f}")
                             logger.info(f"    F1-score: {f1:.4f}")
                             logger.info(f"    Inference time: {inference_time:.3f}s")
@@ -611,7 +921,7 @@ class MLOpsPipeline:
                             
                             if updated_model is not None:
                                 current_best_model = updated_model
-                                logger.info(f"Model updated successfully")
+                                logger.info("Model updated successfully")
                                 
                                 # Update maintenance system
                                 if hasattr(pipeline, 'model_maintenance'):
@@ -625,7 +935,7 @@ class MLOpsPipeline:
                     except Exception as e:
                         logger.error(f"Model update failed: {e}")
                 else:
-                    logger.info(f"  Skip model update: No ground truth labels available")
+                    logger.info("  Skip model update: No ground truth labels available")
             
             batch_counter = batch_num
         
@@ -703,6 +1013,10 @@ def main():
             else:
                 logger.error("Inference failed")
                 sys.exit(1)
+                
+        elif args.mode == 'summary':
+            report_path = pipeline.summary_mode()
+            logger.info(f"Summary report generated: {report_path}")
                 
         elif args.mode == 'update':
             success = pipeline.update_mode(batch_limit=args.batch_limit)

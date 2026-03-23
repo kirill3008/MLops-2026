@@ -6,8 +6,6 @@ Handles model packaging, performance monitoring, and runtime adaptation
 import sys
 import time
 import psutil
-import numpy as np
-import pandas as pd
 import joblib
 import json
 import os
@@ -144,7 +142,7 @@ class ModelPackager:
             try:
                 version = importlib.metadata.version(pkg)
                 versions[pkg] = version
-            except:
+            except Exception:
                 versions[pkg] = 'not_installed'
         
         return versions

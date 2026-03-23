@@ -1,6 +1,5 @@
 from pathlib import Path
 import pandas as pd
-import yaml
 
 from dq_pipeline import (
     read_batch_csv, parse_types, clean_batch,
@@ -39,10 +38,10 @@ def build_reference_from_raw(raw_dir: str, config_path: str, n_batches: int = 1)
     if len(rules) < top_k_needed:
         for s in supports:
             for c in confidences:
-                for l in lifts:
+                for lift_val in lifts:
                     cfg["dq"]["apriori"]["min_support"] = float(s)
                     cfg["dq"]["apriori"]["min_confidence"] = float(c)
-                    cfg["dq"]["apriori"]["min_lift"] = float(l)
+                    cfg["dq"]["apriori"]["min_lift"] = float(lift_val)
                     rules = mine_rules(base, cfg)
                     if len(rules) >= top_k_needed:
                         break
@@ -67,4 +66,5 @@ if __name__ == "__main__":
         config_path="data_analyzer/config.yaml",
         n_batches=5,   # Use fewer batches for faster processing
     )
+
 

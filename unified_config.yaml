@@ -1,0 +1,189 @@
+# Unified Pipeline Configuration
+# This file combines all configurations from individual YAML files
+
+# === Data Collection Configuration ===
+data_collection:
+  batch_size: 5000
+  delay: 0.01
+  output_dir: ./raw_data
+  sources:
+    - ./data/motor_data11-14lats.csv
+    - ./data/motor_data14-2018.csv
+
+  # Data drift simulation (for testing)
+  drift_simulation:
+    enabled: true
+    # After how many batches to introduce drift
+    start_drift_batch: 8
+    # Type of drift to simulate: 'concept', 'covariate', 'anomaly'
+    drift_type: "concept"
+    # Strength of drift (0.0 to 1.0)
+    drift_strength: 0.3
+    # Fields that can have drift applied (whitelist)
+    drift_whitelist:
+      - "CLAIM_PAID"     # Target variable - can have concept drift
+      - "INSURED_VALUE"  # Numerical - can have distribution drift
+      - "PREMIUM"        # Numerical - can have distribution drift
+      - "PROD_YEAR"      # Numerical range can shift
+      - "SEATS_NUM"      # Numerical - can have distribution drift
+      # - "EFFECTIVE_YR"  # Removed - contains garbage data
+
+# === Data Analysis Configuration ===
+data_analysis:
+  dq:
+    parsing:
+      date_format: "%d-%b-%y"
+      date_cols: ["INSR_BEGIN", "INSR_END"]
+      time_col: "INSR_BEGIN"
+
+    io:
+      analyzed_dir: "../analyzed_data"
+      artifacts_dir: "artifacts"
+      analyzed_format: "csv"
+
+    thresholds:
+      # не для reject, а для "quality flags" в отчёте
+      max_missing_total: 0.30
+      max_duplicate_ratio: 0.05
+      max_bad_date_ratio: 0.01
+      max_invalid_ratio: 0.03
+
+    validity:
+      allowed_sex: [0, 1, 2]
+      allowed_insr_type: [1201, 1202, 1204]
+      prod_year_min: 1960
+      prod_year_max: 2018
+      seats_min: 1
+      seats_max: 80
+      non_negative_cols: ["INSURED_VALUE", "PREMIUM", "CLAIM_PAID"]
+
+    cleaning:
+      drop_duplicates: true
+      drop_bad_date_order: true         # INSR_BEGIN > INSR_END -> drop row (как вы сказали)
+      drop_missing_time: true
+      out_of_range_to_nan: true
+      negative_to_nan: true
+      impute_numeric: "median"          # median/mean/none
+      impute_categorical: "Unknown"     # Unknown/none
+
+    apriori:
+      enabled: true
+      include_target: false              # можно использовать CLAIM_PAID>0 как item
+      top_k_rules: 5
+      top_k_cat_values: 5
+      min_support: 0.03
+      min_confidence: 0.4
+      min_lift: 1.05
+
+    rules_reference:
+      enabled: true
+      path: "artifacts/rules/reference_rules.csv"
+      # как строим reference, если его еще нет
+      build_if_missing: true
+
+    consistency:
+      enabled: true
+      report_dir: "artifacts/rules"
+      min_antecedent_count: 30
+      # rule считается "неустойчивым", если confidence сильно просел:
+      min_confidence_abs: 0.30
+      confidence_drop_ratio: 0.70   # confidence_new < confidence_ref * 0.70 -> flag
+      support_drop_ratio: 0.50      # support_new < support_ref * 0.50 -> flag
+
+# === Model Training Configuration ===
+model_training:
+  cv_folds: 3
+  data_folder: ./analyzed_data
+  drift_threshold: 0.1
+  model_registry_path: ./model_registry
+  models:
+    DecisionTree:
+      class_weight:
+        - balanced
+      max_depth:
+        - 10
+        - 15
+      min_samples_leaf:
+        - 2
+        - 4
+      min_samples_split:
+        - 5
+        - 10
+    NeuralNetwork:
+      alpha:
+        - 0.001
+        - 0.01
+      hidden_layer_sizes:
+        - - 100
+        - - 100
+          - 50
+      learning_rate_init:
+        - 0.001
+    RandomForest:
+      class_weight:
+        - balanced
+      max_depth:
+        - 10
+      min_samples_leaf:
+        - 2
+        - 4
+      min_samples_split:
+        - 10
+      n_estimators:
+        - 100
+        - 200
+  random_state: 42
+  test_size: 0.2
+  use_class_weight: true
+
+# === Model Maintenance Configuration ===
+model_maintenance:
+  # Performance monitoring thresholds
+  performance_thresholds:
+    accuracy: 0.7
+    f1: 0.65
+    inference_time: 1.0        # seconds per 1000 samples
+    memory_limit_mb: 500
+
+  # Model selection rules
+  selection_rules:
+    performance_weight: 0.7
+    adaptation_weight: 0.3
+    improvement_threshold: 0.01  # Minimum improvement to update best model
+
+  # Registry settings
+  model_registry_path: "./model_registry"
+
+  # Monitoring settings
+  metrics_retention_days: 30
+  performance_check_interval: 1000  # samples between performance checks
+
+  # Adaptive prediction settings
+  adaptive_prediction:
+    enabled: true
+    sparse_data_threshold: 0.3      # Ratio of zero values
+    anomalous_value_threshold: 0.1  # Ratio of outliers
+    feature_complexity_threshold: 0.5  # Complexity score threshold
+
+# === Global Pipeline Settings ===
+pipeline_settings:
+  initial_batches: 3
+  update_every: 5
+  max_batches: 20
+  performance_thresholds:
+    accuracy: 0.7
+    f1: 0.65
+    inference_time: 1.0
+
+performance_thresholds:
+  accuracy: 0.7
+  f1: 0.65
+  inference_time: 1.0
+  memory_limit_mb: 500
+
+logging:
+  level: "INFO"
+  file: "pipeline.log"
+
+model_registry:
+  path: "model_registry"

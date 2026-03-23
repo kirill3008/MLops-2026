@@ -5,30 +5,23 @@ import glob
 import logging
 import sys
 import json
-import yaml
 import joblib
 import matplotlib.pyplot as plt
-import seaborn as sns
 import shap
 import time
 from datetime import datetime
-from typing import Generator, Dict, Any, Tuple, List, Optional
-from sklearn.model_selection import train_test_split, GridSearchCV, TimeSeriesSplit
+from typing import Dict, Tuple, List
+from sklearn.model_selection import train_test_split, GridSearchCV
 from sklearn.preprocessing import StandardScaler, LabelEncoder
-from sklearn.compose import ColumnTransformer
-from sklearn.pipeline import Pipeline
-from sklearn.impute import SimpleImputer
 from sklearn.tree import DecisionTreeClassifier, plot_tree
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.neural_network import MLPClassifier
-from sklearn.metrics import (mean_squared_error, r2_score, mean_absolute_error,
-                             accuracy_score, precision_score, recall_score, f1_score,
-                             roc_auc_score, confusion_matrix, classification_report)
-import sys
-import os
+from sklearn.metrics import (accuracy_score, precision_score, recall_score, f1_score,
+                             roc_auc_score, confusion_matrix)
 # Add the project root to path so we can import model_maintenance
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from model_maintenance.model_maintenance import ModelMaintenance
+from config import get_config
 
 
 def setup_logging(log_level="INFO", log_file="model_pipeline.log"):
@@ -43,56 +36,6 @@ def setup_logging(log_level="INFO", log_file="model_pipeline.log"):
     return logging.getLogger(__name__)
 
 logger = setup_logging()
-
-
-def load_config(config_path="model_config.yaml"):
-    if os.path.exists(config_path):
-        with open(config_path, 'r', encoding='utf-8') as f:
-            config = yaml.safe_load(f)
-        logger.info(f"Конфигурация загружена из {config_path}")
-        
-        if 'models' in config and 'NeuralNetwork' in config['models']:
-            if 'hidden_layer_sizes' in config['models']['NeuralNetwork']:
-                hidden_layers = config['models']['NeuralNetwork']['hidden_layer_sizes']
-                config['models']['NeuralNetwork']['hidden_layer_sizes'] = [
-                    tuple(h) if isinstance(h, list) else h for h in hidden_layers
-                ]
-    else:
-        config = {
-            "data_folder": "../raw_data",
-            "model_registry_path": "./model_registry",
-            "test_size": 0.2,
-            "random_state": 42,
-            "use_class_weight": True,
-            "models": {
-                "DecisionTree": {
-                    "max_depth": [10, 15],
-                    "min_samples_split": [5, 10],
-                    "min_samples_leaf": [2, 4],
-                    "class_weight": ["balanced"]
-                },
-                "RandomForest": {
-                    "n_estimators": [100, 200],
-                    "max_depth": [10],
-                    "min_samples_split": [10],
-                    "min_samples_leaf": [2, 4],
-                    "class_weight": ["balanced"]
-                },
-                "NeuralNetwork": {
-                    "hidden_layer_sizes": [[100], [100, 50]],
-                    "alpha": [0.001, 0.01],
-                    "learning_rate_init": [0.001]
-                }
-            },
-            "drift_threshold": 0.1,
-            "cv_folds": 3
-        }
-        
-        with open(config_path, 'w', encoding='utf-8') as f:
-            yaml.dump(config, f, default_flow_style=False, allow_unicode=True)
-        logger.info(f"Создан файл конфигурации: {config_path}")
-    
-    return config
 
 
 class DataLoader:
@@ -112,7 +55,7 @@ class DataLoader:
         for f in all_files:
             logger.debug(f"  - {os.path.basename(f)}")
         
-        column_names = ['SEX', 'INSR_BEGIN', 'INSR_END', 'EFFECTIVE_YR', 'INSR_TYPE', 
+        column_names = ['SEX', 'INSR_BEGIN', 'INSR_END', 'INSR_TYPE', 
                         'INSURED_VALUE', 'PREMIUM', 'OBJECT_ID', 'PROD_YEAR', 'SEATS_NUM', 
                         'CARRYING_CAPACITY', 'TYPE_VEHICLE', 'CCM_TON', 'MAKE', 'USAGE', 'CLAIM_PAID']
         
@@ -242,7 +185,7 @@ class DataPreprocessor:
         df_processed['POLICY_DURATION'] = (df_processed['INSR_END'] - df_processed['INSR_BEGIN']).dt.days
         df_processed['POLICY_DURATION'].fillna(1, inplace=True)
         
-        logger.debug(f"  Созданы признаки: POLICY_DURATION")
+        logger.debug("  Созданы признаки: POLICY_DURATION")
         
         drop_cols = ['INSR_BEGIN', 'INSR_END', 'OBJECT_ID', 'MAKE', 'TYPE_VEHICLE', 
                      'USAGE', 'SEX', 'INSR_TYPE', 'EFFECTIVE_YR']
@@ -333,7 +276,7 @@ class ModelTrainer:
             return grid_search.best_estimator_, grid_search.best_score_, grid_search.best_params_
         else:
             model.fit(X_train, y_train)
-            logger.info(f"  Обучение завершено")
+            logger.info("  Обучение завершено")
             return model, None, {}
     
     def incremental_train(self, model, X_new, y_new, model_name: str):
@@ -345,14 +288,14 @@ class ModelTrainer:
             if hasattr(model, 'partial_fit'):
                 # Neural networks can use partial_fit
                 model.partial_fit(X_new, y_new)
-                logger.info(f"  Updated using partial_fit")
+                logger.info("  Updated using partial_fit")
             elif hasattr(model, 'warm_start') and model.warm_start:
                 # RandomForest/DecisionTree with warm_start
                 model.fit(X_new, y_new)
-                logger.info(f"  Updated using warm_start")
+                logger.info("  Updated using warm_start")
             else:
                 # Fallback: retrain with combined data
-                logger.warning(f"  Model doesn't support incremental learning, retraining from scratch")
+                logger.warning("  Model doesn't support incremental learning, retraining from scratch")
                 from sklearn.ensemble import RandomForestClassifier
                 model = RandomForestClassifier(
                     random_state=self.config['random_state'],
@@ -525,7 +468,7 @@ class ModelInterpreter:
         plt.title(f'Decision Tree Visualization (max_depth={max_depth})', fontsize=16)
         plt.tight_layout()
         plt.savefig('decision_tree_visualization.png', dpi=150, bbox_inches='tight')
-        logger.info(f"  График дерева сохранен: decision_tree_visualization.png")
+        logger.info("  График дерева сохранен: decision_tree_visualization.png")
         
         return importance
     
@@ -580,16 +523,12 @@ class ModelInterpreter:
 
 class ModelPipeline:
     
-    def __init__(self, config_path: str = "model_config.yaml"):
-        self.config = load_config(config_path)
+    def __init__(self):
+        config = get_config()
+        self.config = config.model_training
         
-        # Load maintenance configuration and merge
-        maintenance_config_path = "model_maintenance/config.yaml"
-        if os.path.exists(maintenance_config_path):
-            with open(maintenance_config_path, 'r', encoding='utf-8') as f:
-                maintenance_config = yaml.safe_load(f)
-            # Merge with main config
-            self.config.update(maintenance_config)
+        # Merge model_maintenance config
+        self.config.update(config.model_maintenance)
         
         self.data_loader = DataLoader(self.config['data_folder'])
         self.preprocessor = DataPreprocessor()
@@ -635,7 +574,7 @@ class ModelPipeline:
             return None, None
         
         logger.info(f"  Признаков: {len(self.feature_cols)}")
-        logger.info(f"  Целевая переменная: HAS_CLAIM")
+        logger.info("  Целевая переменная: HAS_CLAIM")
         logger.info(f"  Распределение классов: 0={len(y[y==0])}, 1={len(y[y==1])}")
         logger.info(f"  Доля положительных: {len(y[y==1])/len(y)*100:.2f}%")
         
@@ -667,7 +606,7 @@ class ModelPipeline:
             
             metrics, y_pred, y_pred_proba = self.evaluator.evaluate(best_model, X_test, y_test)
             
-            logger.info(f"\n  Результаты на тестовой выборке:")
+            logger.info("\n  Результаты на тестовой выборке:")
             logger.info(f"    Accuracy: {metrics['accuracy']:.4f}")
             logger.info(f"    Precision: {metrics['precision']:.4f}")
             logger.info(f"    Recall: {metrics['recall']:.4f}")
@@ -732,7 +671,7 @@ class ModelPipeline:
             
             y_pred_best = best_overall_info['model_obj'].predict(best_overall_info['X_test'])
             cm = confusion_matrix(best_overall_info['y_test'], y_pred_best)
-            logger.info(f"\n  Матрица ошибок:")
+            logger.info("\n  Матрица ошибок:")
             logger.info(f"    TN={cm[0,0]}, FP={cm[0,1]}")
             logger.info(f"    FN={cm[1,0]}, TP={cm[1,1]}")
         
@@ -750,7 +689,7 @@ class ModelPipeline:
                 threshold=self.config['drift_threshold']
             )
             
-            logger.info(f"\n  Текущие метрики на новых данных:")
+            logger.info("\n  Текущие метрики на новых данных:")
             logger.info(f"    ROC-AUC: {current_metrics.get('roc_auc', 0):.4f}")
             logger.info(f"    Recall: {current_metrics.get('recall', 0):.4f}")
             logger.info(f"  Дрейф обнаружен: {'ДА' if any(drift_detected.values()) else 'НЕТ'}")
@@ -784,7 +723,7 @@ class ModelPipeline:
             self.model_performance = best_overall_info['metrics']
             
             logger.info(f"Лучшая модель упакована и зарегистрирована: {best_overall_info['model']}")
-            logger.info(f"  Сохранена в реестре моделей")
+            logger.info("  Сохранена в реестре моделей")
             
         self._print_storage_info()
         
@@ -865,7 +804,7 @@ class ModelPipeline:
         roc_improvement = metrics_after['roc_auc'] - metrics_before['roc_auc']
         recall_improvement = metrics_after['recall'] - metrics_before['recall']
         
-        logger.info(f"\nИзменения:")
+        logger.info("\nИзменения:")
         logger.info(f"  ROC-AUC: {roc_improvement:+.4f}")
         logger.info(f"  Recall: {recall_improvement:+.4f}")
         
@@ -887,7 +826,7 @@ class ModelPipeline:
         total_size = sum(os.path.getsize(os.path.join(self.registry.storage_path, f)) 
                         for f in files) / (1024 * 1024)
         
-        logger.info(f"\nХранилище моделей:")
+        logger.info("\nХранилище моделей:")
         logger.info(f"  Директория: {self.registry.storage_path}")
         logger.info(f"  Моделей сохранено: {len(files)}")
         logger.info(f"  Общий размер: {total_size:.2f} МБ")

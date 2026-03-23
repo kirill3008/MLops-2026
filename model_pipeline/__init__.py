@@ -1,3 +1,3 @@
 # Model Pipeline Module
 
-from .model_pipeline import ModelPipeline, load_config
+from .model_pipeline import ModelPipeline  # noqa: F401

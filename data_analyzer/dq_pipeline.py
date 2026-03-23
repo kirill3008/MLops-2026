@@ -1,21 +1,19 @@
-from __future__ import annotations
-
 import json
-from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional
+from datetime import datetime
 
 import numpy as np
 import pandas as pd
-import yaml
 
 from mlxtend.frequent_patterns import apriori, association_rules
+from config import get_config
+from .drift_detector import DataDriftDetector
 
 
 # ---------- config ----------
-def load_yaml(path: str | Path) -> Dict[str, Any]:
-    with open(path, "r", encoding="utf-8") as f:
-        return yaml.safe_load(f)
+# Deprecated - using unified config instead
+# Use config = get_config().data_analysis instead
 
 
 # ---------- parsing ----------
@@ -32,7 +30,7 @@ def _parse_items(items_str: str) -> List[str]:
     return [x.strip() for x in s.split(",") if x.strip()]
 
 
-def evaluate_reference_rules_on_batch(parsed_df: pd.DataFrame, cfg: Dict[str, Any]) -> Dict[str, Any]:
+def evaluate_reference_rules_on_batch(parsed_df: pd.DataFrame, cfg: Dict[str, Any], batch_info: Dict[str, Any] = None) -> Dict[str, Any]:
     cons_cfg = cfg["dq"].get("consistency", {})
     if not cons_cfg.get("enabled", True):
         return {"enabled": False}
@@ -119,14 +117,41 @@ def evaluate_reference_rules_on_batch(parsed_df: pd.DataFrame, cfg: Dict[str, An
 
     # overall flags
     any_issue = bool((df_res["flag_conf_drop"] | df_res["flag_support_drop"] | df_res["flag_conf_abs"]).any())
-
-    return {
+    
+    # Initialize drift detector if not already done
+    if not hasattr(evaluate_reference_rules_on_batch, 'drift_detector'):
+        config = get_config()
+        # Initialize with the current batch as reference data
+        evaluate_reference_rules_on_batch.drift_detector = DataDriftDetector(
+            config.data_analysis, 
+            reference_data=parsed_df.copy()
+        )
+    
+    drift_detector = evaluate_reference_rules_on_batch.drift_detector
+    
+    # Set up batch_info - use passed parameter or create default
+    if batch_info is None:
+        batch_info = {
+            'batch_num': 1,  # Default batch number
+            'timestamp': datetime.now().isoformat()
+        }
+    
+    drift_results = drift_detector.detect_drift(parsed_df, batch_info)
+    
+    # Add drift information to results
+    result = {
         "enabled": True,
         "n_rows": n_rows,
         "n_rules_checked": int(len(df_res)),
         "any_issue": any_issue,
         "rules": df_res.to_dict(orient="records"),
+        "drift_analysis": drift_results,
+        "drift_detected": drift_results.get('drift_detected', False),
+        "drift_type": drift_results.get('drift_type', None),
+        "drift_confidence": drift_results.get('confidence', 0.0)
     }
+    
+    return result
 
 
 def build_reference_rules_if_missing(parsed_df: pd.DataFrame, cfg: Dict[str, Any]) -> Optional[Path]:
@@ -164,7 +189,7 @@ def parse_types(df: pd.DataFrame, cfg: Dict[str, Any]) -> pd.DataFrame:
 
     # numeric coercion for known numeric columns if exist
     numeric_candidates = [
-        "EFFECTIVE_YR", "INSR_TYPE", "SEX",
+        "INSR_TYPE", "SEX",
         "INSURED_VALUE", "PREMIUM", "OBJECT_ID", "PROD_YEAR",
         "SEATS_NUM", "CARRYING_CAPACITY", "CCM_TON", "CLAIM_PAID",
     ]
