@@ -288,12 +288,27 @@ def clean_batch(df: pd.DataFrame, cfg: Dict[str, Any]) -> pd.DataFrame:
             if col in df.columns:
                 df.loc[df[col] < 0, col] = np.nan
 
-    # impute numeric
+    # SPECIAL HANDLING: NULL VALUES -> 0 FOR APPROPRIATE COLUMNS
+    # These columns have natural zero values and nulls should be treated as 0
+    zero_default_columns = [
+        "CLAIM_PAID",      # No claim = 0
+        "INSURED_VALUE",   # No insured value = 0  
+        "CARRYING_CAPACITY", # No carrying capacity = 0
+        "CCM_TON",         # No engine capacity = 0
+        "SEATS_NUM"        # No seats = 0 (trailers, etc.)
+    ]
+    
+    for col in zero_default_columns:
+        if col in df.columns:
+            # Fill nulls with 0 for these columns
+            df[col] = df[col].fillna(0)
+
+    # impute remaining numeric columns (that still have nulls after zero-filling)
     imp_num = cln.get("impute_numeric", "median")
     if imp_num and imp_num.lower() != "none":
         num_cols = df.select_dtypes(include=["number"]).columns.tolist()
         for c in num_cols:
-            if df[c].isna().any():
+            if df[c].isna().any():  
                 fill = df[c].median() if imp_num == "median" else df[c].mean()
                 df[c] = df[c].fillna(fill)
 
@@ -477,5 +492,43 @@ def main():
     print("Flags after:", res["flags_after"])
 
 
+def process_all_raw_batches(raw_dir: str = "./raw_data", analyzed_dir: str = "./analyzed_data", config_path: str = "data_analyzer/config.yaml"):
+    """Process all raw data batches and save analyzed versions"""
+    import os
+    from pathlib import Path
+    
+    # Create analyzed directory
+    Path(analyzed_dir).mkdir(parents=True, exist_ok=True)
+    
+    # Load config
+    cfg = load_yaml(config_path)
+    
+    # Get all raw batch files
+    raw_dir = Path(raw_dir)
+    batch_files = sorted(raw_dir.glob("*.csv"))
+    
+    print(f"Found {len(batch_files)} batch files to process")
+    
+    for i, raw_file in enumerate(batch_files):
+        print(f"Processing batch {i+1}/{len(batch_files)}: {raw_file.name}")
+        
+        # Analyze the batch
+        result = analyze_batch_file(str(raw_file), config_path)
+        
+        # Copy the analyzed CSV to analyzed_data directory with simpler name
+        if result.get('analyzed_path') and os.path.exists(result['analyzed_path']):
+            analyzed_file = Path(result['analyzed_path'])
+            simple_name = f"analyzed_batch_{i+1:03d}.csv"
+            simple_path = Path(analyzed_dir) / simple_name
+            
+            # Copy the file
+            import shutil
+            shutil.copy2(analyzed_file, simple_path)
+            print(f"  Saved as: {simple_path}")
+    
+    print(f"All batches processed. Analyzed data saved to {analyzed_dir}")
+
+
 if __name__ == "__main__":
-    main()
+    # Process all batches instead of just one
+    process_all_raw_batches()

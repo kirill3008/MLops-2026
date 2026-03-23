@@ -1,6 +1,6 @@
 batch_size: 5000
 delay: 0.01
-output_dir: ../raw_data
+output_dir: ./raw_data
 sources:
-- ../data/motor_data11-14lats.csv
-- ../data/motor_data14-2018.csv
+- ./data/motor_data11-14lats.csv
+- ./data/motor_data14-2018.csv

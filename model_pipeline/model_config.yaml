@@ -1,5 +1,5 @@
 cv_folds: 3
-data_folder: ../raw_data
+data_folder: ./analyzed_data  # Changed from ../raw_data
 drift_threshold: 0.1
 model_registry_path: ./model_registry
 models:

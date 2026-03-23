@@ -1,0 +1,35 @@
+# Main Pipeline Configuration
+
+data_collection:
+  config_path: "data_collection/config.yaml"
+
+data_analysis:
+  config_path: "data_analyzer/config.yaml"
+
+model_training:
+  config_path: "model_pipeline/model_config.yaml"
+
+model_maintenance:
+  config_path: "model_maintenance/config.yaml"
+
+model_registry:
+  path: "model_registry"
+
+pipeline_settings:
+  initial_batches: 3
+  update_every: 5
+  max_batches: 20
+  performance_thresholds:
+    accuracy: 0.7
+    f1: 0.65
+    inference_time: 1.0
+
+performance_thresholds:
+  accuracy: 0.7
+  f1: 0.65
+  inference_time: 1.0
+  memory_limit_mb: 500
+
+logging:
+  level: "INFO"
+  file: "pipeline.log"

@@ -61,10 +61,10 @@ def build_reference_from_raw(raw_dir: str, config_path: str, n_batches: int = 1)
 
 
 if __name__ == "__main__":
-    # Example: first batch of 5000 rows already exists as one csv
+    # Use the local raw_data directory and fix config path
     build_reference_from_raw(
-        raw_dir="../raw_data",
-        config_path="config.yaml",
-        n_batches=20,   # or 2-3 if one batch is too “narrow”
+        raw_dir="./raw_data",
+        config_path="data_analyzer/config.yaml",
+        n_batches=5,   # Use fewer batches for faster processing
     )
 

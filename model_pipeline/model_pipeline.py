@@ -24,8 +24,11 @@ from sklearn.neural_network import MLPClassifier
 from sklearn.metrics import (mean_squared_error, r2_score, mean_absolute_error,
                              accuracy_score, precision_score, recall_score, f1_score,
                              roc_auc_score, confusion_matrix, classification_report)
-import warnings
-warnings.filterwarnings('ignore')
+import sys
+import os
+# Add the project root to path so we can import model_maintenance
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from model_maintenance.model_maintenance import ModelMaintenance
 
 
 def setup_logging(log_level="INFO", log_file="model_pipeline.log"):
@@ -192,7 +195,7 @@ class DataPreprocessor:
         
         for col in numeric_cols:
             if col in df_processed.columns and df_processed[col].isnull().any():
-                if col == 'INSURED_VALUE':
+                if col in ['INSURED_VALUE', 'CLAIM_PAID']:
                     df_processed[col].fillna(0, inplace=True)
                     logger.debug(f"    {col}: заполнено 0")
                 else:
@@ -334,32 +337,37 @@ class ModelTrainer:
             return model, None, {}
     
     def incremental_train(self, model, X_new, y_new, model_name: str):
-        """Простое дообучение модели на новых данных"""
-        logger.info(f"Дообучение {model_name} на {len(X_new)} новых записях...")
+        """Perform incremental training on existing model"""
+        logger.info(f"Incremental training for {model_name}")
         
-        if model_name == 'RandomForest':
-            if hasattr(model, 'warm_start') and model.warm_start:
-                old_n = model.n_estimators
-                model.n_estimators = old_n + 50
+        try:
+            # For models that support partial_fit or warm_start
+            if hasattr(model, 'partial_fit'):
+                # Neural networks can use partial_fit
+                model.partial_fit(X_new, y_new)
+                logger.info(f"  Updated using partial_fit")
+            elif hasattr(model, 'warm_start') and model.warm_start:
+                # RandomForest/DecisionTree with warm_start
                 model.fit(X_new, y_new)
-                logger.info(f"  Добавлено 50 деревьев. Теперь: {model.n_estimators}")
+                logger.info(f"  Updated using warm_start")
             else:
+                # Fallback: retrain with combined data
+                logger.warning(f"  Model doesn't support incremental learning, retraining from scratch")
+                from sklearn.ensemble import RandomForestClassifier
+                model = RandomForestClassifier(
+                    random_state=self.config['random_state'],
+                    n_estimators=100,
+                    max_depth=10,
+                    warm_start=True,
+                    class_weight='balanced' if self.use_class_weight else None
+                )
                 model.fit(X_new, y_new)
-                logger.info("  Полное переобучение")
-                
-        elif model_name == 'NeuralNetwork':
-            if hasattr(model, 'warm_start') and model.warm_start:
-                model.fit(X_new, y_new)
-                logger.info(f"  Продолжено обучение. Потеря: {model.loss_:.4f}")
-            else:
-                model.fit(X_new, y_new)
-                logger.info("  Полное переобучение")
-                
-        else:
-            logger.warning(f"  {model_name} не поддерживает дообучение. Выполняется полное переобучение")
-            model.fit(X_new, y_new)
-        
-        return model
+            
+            return model
+            
+        except Exception as e:
+            logger.error(f"Incremental training failed: {e}")
+            return None
 
 
 class ModelRegistry:
@@ -575,12 +583,23 @@ class ModelPipeline:
     def __init__(self, config_path: str = "model_config.yaml"):
         self.config = load_config(config_path)
         
+        # Load maintenance configuration and merge
+        maintenance_config_path = "model_maintenance/config.yaml"
+        if os.path.exists(maintenance_config_path):
+            with open(maintenance_config_path, 'r', encoding='utf-8') as f:
+                maintenance_config = yaml.safe_load(f)
+            # Merge with main config
+            self.config.update(maintenance_config)
+        
         self.data_loader = DataLoader(self.config['data_folder'])
         self.preprocessor = DataPreprocessor()
         self.model_trainer = ModelTrainer(self.config)
         self.registry = ModelRegistry(self.config['model_registry_path'])
         self.evaluator = ModelEvaluator()
         self.interpreter = ModelInterpreter()
+        
+        # Initialize model maintenance system (moved after config loading)
+        self.model_maintenance = ModelMaintenance(self.config)
         
         logger.info("=" * 60)
         logger.info("ПАЙПЛАЙН ПОСТРОЕНИЯ МОДЕЛИ ИНИЦИАЛИЗИРОВАН")
@@ -736,14 +755,37 @@ class ModelPipeline:
             logger.info(f"    Recall: {current_metrics.get('recall', 0):.4f}")
             logger.info(f"  Дрейф обнаружен: {'ДА' if any(drift_detected.values()) else 'НЕТ'}")
         
-        elapsed_time = time.time() - start_time
         
-        logger.info("\n" + "=" * 60)
-        logger.info("ИТОГОВАЯ СТАТИСТИКА")
-        logger.info("=" * 60)
-        logger.info(f"Всего обучено моделей: {len(all_results)}")
-        logger.info(f"Время выполнения: {elapsed_time:.2f} сек")
+        logger.info("\n МОДЕЛЬНЫЙ МЕНЕДЖМЕНТ И СЕРИАЛИЗАЦИЯ")
+        logger.info("-" * 40)
         
+        # Package and maintain best performing model
+        if best_overall_info:
+            # Evaluate maintenance metrics
+            maintenance_metrics = self.model_maintenance.evaluate_model_performance(
+                best_overall_info['model_obj'], 
+                best_overall_info['model'],
+                best_overall_info['X_test'], 
+                best_overall_info['y_test']
+            )
+            
+            # Package the model with maintenance data
+            self.model_maintenance.package_and_register_model(
+                best_overall_info['model_obj'],
+                best_overall_info['model'],
+                best_overall_info['metrics'],
+                best_overall_info['feature_names'],
+                self.preprocessor  # Include preprocessing pipeline
+            )
+            
+            # Set as current best model
+            self.best_model = best_overall_info['model_obj']
+            self.best_params = best_overall_info['best_params']
+            self.model_performance = best_overall_info['metrics']
+            
+            logger.info(f"Лучшая модель упакована и зарегистрирована: {best_overall_info['model']}")
+            logger.info(f"  Сохранена в реестре моделей")
+            
         self._print_storage_info()
         
         if all_results:
@@ -810,6 +852,10 @@ class ModelPipeline:
         
         logger.info("\nВыполнение дообучения...")
         updated_model = self.model_trainer.incremental_train(model, X_new, y_new, model_name)
+        
+        if updated_model is None:
+            logger.error("Incremental training failed - returning original model")
+            return model, metrics_before
         
         logger.info("\nОценка модели после дообучения...")
         metrics_after, _, _ = self.evaluator.evaluate(updated_model, X_new, y_new)
