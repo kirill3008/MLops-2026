@@ -130,50 +130,82 @@ class MLOpsPipeline:
         
         return output_path
     
-    def update_mode(self):
-        """Update/retrain model with new data"""
+    def update_mode(self, batch_limit: int = 5):
+        """Update/retrain model with new data
+        
+        Args:
+            batch_limit (int): Maximum number of batches to process (prevents long runs)
+        """
         logger.info("=== UPDATE MODE ===")
         
         try:
+            # Check if we have trained models first
+            if self.best_model is None:
+                self._load_best_model()
+                if self.best_model is None:
+                    logger.error("No trained models found. Run pipeline mode first to train initial models.")
+                    return False
+            
             # Load and analyze new data
             dc_config = load_dc_config(self.config['data_collection']['config_path'])
             data_stream = DataStream(dc_config['sources'], dc_config['batch_size'], dc_config['delay'])
             
+            batch_count = 0
+            processed_count = 0
+            
             for batch in data_stream.stream():
-                logger.info(f"Processing batch: {len(batch)} rows")
+                batch_count += 1
+                
+                # Limit number of batches to prevent long runs
+                if batch_count > batch_limit:
+                    logger.info(f"Batch limit reached ({batch_limit}). Stopping update process.")
+                    break
+                
+                logger.info(f"Processing batch {batch_count}: {len(batch)} rows")
+                
+                # Get batch info from attrs if available
+                batch_info = batch.attrs.get('batch_info', {'batch_num': batch_count})
                 
                 # Data quality analysis
                 dq_config = load_yaml(self.config['data_analysis']['config_path'])
                 dq_results = evaluate_reference_rules_on_batch(batch, dq_config)
                 
-                if dq_results.get('enabled', False):
-                    logger.info(f"Data quality check passed: {dq_results}")
+                if dq_results.get('enabled', False) and not dq_results.get('error'):
+                    logger.info(f"  Data quality: PASSED")
+                else:
+                    logger.warning(f"  Data quality: ISSUES - {dq_results.get('error', 'Unknown')}")
                 
                 # Update model pipeline
                 if self.model_pipeline is None:
                     self.model_pipeline = ModelPipeline(self.config['model_training']['config_path'])
                 
                 # Use incremental_update method which requires proper data preprocessing
-                # First, we need to preprocess the batch like in the pipeline mode
                 try:
                     preprocessed = self.model_pipeline.preprocessor.preprocess(batch.copy(), fit_scaler=False)
                     if isinstance(preprocessed, tuple) and len(preprocessed) >= 2:
                         X_batch, y_batch = preprocessed[0], preprocessed[1]
-                        updated_model, metrics = self.model_pipeline.incremental_update(X_new=X_batch, y_new=y_batch, model_name='RandomForest')
-                        if updated_model is not None:
-                            logger.info(f"Model updated successfully for batch {batch_info['batch_num']}")
+                        
+                        # Check if we have ground truth labels for this batch
+                        if y_batch is not None and len(y_batch) > 0:
+                            updated_model, metrics = self.model_pipeline.incremental_update(X_new=X_batch, y_new=y_batch, model_name='RandomForest')
+                            if updated_model is not None:
+                                logger.info(f"  Model updated successfully for batch {batch_info['batch_num']}")
+                                processed_count += 1
+                            else:
+                                logger.warning(f"  Model update failed for batch {batch_info['batch_num']}")
                         else:
-                            logger.warning(f"Model update failed for batch {batch_info['batch_num']}")
+                            logger.info(f"  Skipping update: No ground truth labels available in batch {batch_info['batch_num']}")
                     else:
-                        logger.warning("Could not preprocess batch for update")
+                        logger.warning("  Could not preprocess batch for update")
                 except Exception as e:
-                    logger.error(f"Error preprocessing batch for update: {e}")
+                    logger.error(f"  Error preprocessing batch for update: {e}")
+                    continue
                 
-                # Update best model
+                # Update best model reference
                 self._update_best_model()
             
-            logger.info("Update completed successfully")
-            return True
+            logger.info(f"Update completed. Processed {processed_count} batches out of {batch_count}")
+            return processed_count > 0
             
         except Exception as e:
             logger.error(f"Update failed: {e}")
@@ -190,6 +222,19 @@ class MLOpsPipeline:
             "performance": self._collect_performance_metrics(),
             "hyperparameters": self._collect_hyperparameters()
         }
+        
+        # Convert numpy types to JSON-serializable types
+        def convert_to_json_serializable(obj):
+            if hasattr(obj, 'item'):
+                return obj.item()
+            elif isinstance(obj, dict):
+                return {k: convert_to_json_serializable(v) for k, v in obj.items()}
+            elif isinstance(obj, (list, tuple)):
+                return [convert_to_json_serializable(item) for item in obj]
+            else:
+                return obj
+        
+        summary_data = convert_to_json_serializable(summary_data)
         
         # Save summary report
         report_path = f"summary_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
@@ -225,23 +270,169 @@ class MLOpsPipeline:
     
     def _update_best_model(self):
         """Update the best model based on performance"""
-        if self.model_pipeline and hasattr(self.model_pipeline, 'best_model'):
-            self.best_model = self.model_pipeline.best_model
+        try:
+            if self.model_pipeline and hasattr(self.model_pipeline, 'best_model'):
+                self.best_model = self.model_pipeline.best_model
+                logger.debug("Best model updated from pipeline")
+            else:
+                # Try to load the best model from registry
+                self._load_best_model()
+                if self.best_model:
+                    logger.debug("Best model loaded from registry")
+        except Exception as e:
+            logger.warning(f"Could not update best model: {e}")
     
     def _collect_model_metrics(self):
-        """Collect model performance metrics"""
+        """Collect model performance metrics from registry and pipeline"""
+        metrics = {}
+        
+        # Try to get metrics from model pipeline first
         if self.model_pipeline and hasattr(self.model_pipeline, 'model_performance'):
-            return self.model_pipeline.model_performance
-        return {}
+            metrics.update(self.model_pipeline.model_performance)
+        
+        # Try to load metrics from best_model.json
+        try:
+            registry_path = self.config['model_registry']['path']
+            best_model_info_path = os.path.join(registry_path, "best_model.json")
+            if os.path.exists(best_model_info_path):
+                with open(best_model_info_path, 'r') as f:
+                    best_info = json.load(f)
+                if 'metrics' in best_info:
+                    metrics.update(best_info['metrics'])
+                    metrics['best_model_name'] = best_info.get('model_name', 'Unknown')
+        except Exception as e:
+            logger.warning(f"Could not load best model info: {e}")
+        
+        # Get model registry statistics
+        try:
+            metadata_path = os.path.join(self.config['model_registry']['path'], 'models_metadata.json')
+            if os.path.exists(metadata_path):
+                with open(metadata_path, 'r') as f:
+                    registry_data = json.load(f)
+                
+                model_counts = {}
+                total_versions = 0
+                for model_name, versions in registry_data.get('models', {}).items():
+                    model_counts[model_name] = len(versions)
+                    total_versions += len(versions)
+                
+                metrics.update({
+                    'total_models': len(model_counts),
+                    'total_versions': total_versions,
+                    'model_counts': model_counts
+                })
+        except Exception as e:
+            logger.warning(f"Could not load model registry statistics: {e}")
+        
+        return metrics if metrics else {"status": "no_model_metrics_available"}
     
     def _collect_data_quality(self):
-        """Collect data quality metrics"""
-        # Implementation would depend on your data quality tracking
-        return {"status": "implement_data_quality_tracking"}
+        """Collect data quality metrics from artifacts"""
+        dq_metrics = {}
+        
+        try:
+            # Try to read the latest data quality reports
+            artifacts_dir = "artifacts/dq"
+            if os.path.exists(artifacts_dir):
+                dq_files = sorted(
+                    [f for f in os.listdir(artifacts_dir) if f.endswith('.json')],
+                    reverse=True
+                )
+                
+                if dq_files:
+                    # Load the most recent data quality report
+                    latest_dq_file = os.path.join(artifacts_dir, dq_files[0])
+                    with open(latest_dq_file, 'r') as f:
+                        dq_data = json.load(f)
+                    
+                    # Extract meaningful metrics
+                    if 'after' in dq_data:
+                        dq_metrics.update({
+                            'missing_total_ratio': dq_data['after'].get('missing_total_ratio', 0),
+                            'duplicate_ratio': dq_data['after'].get('duplicate_ratio', 0),
+                            'invalid_ratio': dq_data['after'].get('invalid_ratio', 0),
+                            'total_rows': dq_data['after'].get('n_rows', 0),
+                            'total_columns': dq_data['after'].get('n_cols', 0),
+                            'batch_id': dq_files[0].replace('_dq.json', '')
+                        })
+                    
+                    if 'flags_after' in dq_data:
+                        dq_metrics['data_quality_passed'] = not dq_data['flags_after'].get('any_issue', True)
+            
+            # Collect consistency rule metrics
+            rules_dir = "artifacts/rules"
+            if os.path.exists(rules_dir):
+                consistency_files = sorted(
+                    [f for f in os.listdir(rules_dir) if f.startswith('consistency_') and f.endswith('.json')],
+                    reverse=True
+                )
+                
+                if consistency_files:
+                    latest_consistency_file = os.path.join(rules_dir, consistency_files[0])
+                    with open(latest_consistency_file, 'r') as f:
+                        consistency_data = json.load(f)
+                    
+                    dq_metrics.update({
+                        'consistency_rules_checked': consistency_data.get('n_rules_checked', 0),
+                        'consistency_issues': consistency_data.get('any_issue', False),
+                        'consistency_batch_id': consistency_files[0].replace('consistency_', '').replace('.json', '')
+                    })
+        
+        except Exception as e:
+            logger.warning(f"Could not collect data quality metrics: {e}")
+        
+        return dq_metrics if dq_metrics else {"status": "no_dq_data_available"}
     
     def _collect_performance_metrics(self):
         """Collect system performance metrics"""
-        return {"status": "implement_performance_monitoring"}
+        perf_metrics = {}
+        
+        try:
+            # Try to get performance data from pipeline log files
+            if os.path.exists('pipeline_performance.csv'):
+                perf_df = pd.read_csv('pipeline_performance.csv')
+                if not perf_df.empty:
+                    perf_metrics.update({
+                        'avg_accuracy': float(perf_df['accuracy'].mean()),
+                        'avg_f1': float(perf_df['f1'].mean()),
+                        'avg_inference_time': float(perf_df['inference_time'].mean()),
+                        'total_batches_evaluated': int(len(perf_df)),
+                        'performance_trend_available': True
+                    })
+            
+            # Check for recent performance CSV files
+            perf_files = sorted(
+                [f for f in os.listdir('.') if f.startswith('pipeline_performance_') and f.endswith('.csv')],
+                reverse=True
+            )
+            
+            if perf_files:
+                latest_perf_file = perf_files[0]
+                perf_df = pd.read_csv(latest_perf_file)
+                if not perf_df.empty:
+                    perf_metrics.update({
+                        'latest_accuracy': float(perf_df['accuracy'].iloc[-1]),
+                        'latest_f1': float(perf_df['f1'].iloc[-1]),
+                        'latest_inference_time': float(perf_df['inference_time'].iloc[-1]),
+                        'total_batches': int(perf_df['batch'].iloc[-1]),  # Use iloc[-1] instead of max() for correct value
+                        'performance_file': latest_perf_file
+                    })
+            
+            # Check system resource usage
+            try:
+                import psutil
+                memory_info = psutil.virtual_memory()
+                perf_metrics.update({
+                    'memory_usage_percent': float(memory_info.percent),
+                    'available_memory_gb': float(memory_info.available / (1024**3))
+                })
+            except ImportError:
+                perf_metrics['psutil_available'] = False
+        
+        except Exception as e:
+            logger.warning(f"Could not collect performance metrics: {e}")
+        
+        return perf_metrics if perf_metrics else {"status": "no_performance_data_available"}
     
     def _collect_hyperparameters(self):
         """Collect hyperparameter information"""
@@ -494,6 +685,8 @@ def main():
                        help='Update model every N batches (pipeline mode)')
     parser.add_argument('-max_batches', type=int, default=20, 
                        help='Maximum batches to process (pipeline mode)')
+    parser.add_argument('-batch_limit', type=int, default=5, 
+                       help='Maximum number of batches to process in update mode (default: 5)')
     
     args = parser.parse_args()
     
@@ -512,7 +705,7 @@ def main():
                 sys.exit(1)
                 
         elif args.mode == 'update':
-            success = pipeline.update_mode()
+            success = pipeline.update_mode(batch_limit=args.batch_limit)
             if success:
                 logger.info("Update completed successfully")
             else:

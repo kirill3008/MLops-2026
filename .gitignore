@@ -1,5 +1,11 @@
 **/*.log
 raw_data
 analyzed_data
+model_registry
 **/__pycache__
+summary_report*
+pipeline_performance*
+inference_result*
+artifacts
+random_forest_importance.png
 
