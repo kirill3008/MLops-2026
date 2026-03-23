@@ -18,7 +18,6 @@ from sklearn.ensemble import RandomForestClassifier
 from sklearn.neural_network import MLPClassifier
 from sklearn.metrics import (accuracy_score, precision_score, recall_score, f1_score,
                              roc_auc_score, confusion_matrix)
-# Add the project root to path so we can import model_maintenance
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from model_maintenance.model_maintenance import ModelMaintenance
 from config import get_config
@@ -280,21 +279,16 @@ class ModelTrainer:
             return model, None, {}
     
     def incremental_train(self, model, X_new, y_new, model_name: str):
-        """Perform incremental training on existing model"""
         logger.info(f"Incremental training for {model_name}")
         
         try:
-            # For models that support partial_fit or warm_start
             if hasattr(model, 'partial_fit'):
-                # Neural networks can use partial_fit
                 model.partial_fit(X_new, y_new)
                 logger.info("  Updated using partial_fit")
             elif hasattr(model, 'warm_start') and model.warm_start:
-                # RandomForest/DecisionTree with warm_start
                 model.fit(X_new, y_new)
                 logger.info("  Updated using warm_start")
             else:
-                # Fallback: retrain with combined data
                 logger.warning("  Model doesn't support incremental learning, retraining from scratch")
                 from sklearn.ensemble import RandomForestClassifier
                 model = RandomForestClassifier(
@@ -379,7 +373,6 @@ class ModelRegistry:
         return model, best
     
     def get_latest_model(self, model_name: str):
-        """Получение последней версии модели"""
         models_dict = self.metadata['models']
         
         if model_name not in models_dict or not models_dict[model_name]:
@@ -527,7 +520,6 @@ class ModelPipeline:
         config = get_config()
         self.config = config.model_training
         
-        # Merge model_maintenance config
         self.config.update(config.model_maintenance)
         
         self.data_loader = DataLoader(self.config['data_folder'])
@@ -537,7 +529,6 @@ class ModelPipeline:
         self.evaluator = ModelEvaluator()
         self.interpreter = ModelInterpreter()
         
-        # Initialize model maintenance system (moved after config loading)
         self.model_maintenance = ModelMaintenance(self.config)
         
         logger.info("=" * 60)
@@ -698,9 +689,7 @@ class ModelPipeline:
         logger.info("\n МОДЕЛЬНЫЙ МЕНЕДЖМЕНТ И СЕРИАЛИЗАЦИЯ")
         logger.info("-" * 40)
         
-        # Package and maintain best performing model
         if best_overall_info:
-            # Evaluate maintenance metrics
             maintenance_metrics = self.model_maintenance.evaluate_model_performance(
                 best_overall_info['model_obj'], 
                 best_overall_info['model'],
@@ -708,16 +697,14 @@ class ModelPipeline:
                 best_overall_info['y_test']
             )
             
-            # Package the model with maintenance data
             self.model_maintenance.package_and_register_model(
                 best_overall_info['model_obj'],
                 best_overall_info['model'],
                 best_overall_info['metrics'],
                 best_overall_info['feature_names'],
-                self.preprocessor  # Include preprocessing pipeline
+                self.preprocessor 
             )
             
-            # Set as current best model
             self.best_model = best_overall_info['model_obj']
             self.best_params = best_overall_info['best_params']
             self.model_performance = best_overall_info['metrics']
@@ -808,7 +795,6 @@ class ModelPipeline:
         logger.info(f"  ROC-AUC: {roc_improvement:+.4f}")
         logger.info(f"  Recall: {recall_improvement:+.4f}")
         
-        # 7. Сохранение дообученной модели
         version = self.registry.register_model(
             updated_model, 
             model_name, 
