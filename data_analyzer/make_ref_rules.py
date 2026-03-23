@@ -1,13 +1,13 @@
 from pathlib import Path
 import pandas as pd
-
-from dq_pipeline import (
+from config import get_config
+from .dq_pipeline import (
     read_batch_csv, parse_types, clean_batch,
-    mine_rules, load_yaml
+    mine_rules
 )
 
 def build_reference_from_raw(raw_dir: str, config_path: str, n_batches: int = 1):
-    cfg = load_yaml(config_path)
+    cfg = get_config(config_path).data_analysis
 
     raw_dir = Path(raw_dir)
     batch_paths = sorted(raw_dir.glob("*.csv"))[:n_batches]
@@ -63,7 +63,7 @@ if __name__ == "__main__":
     # Use the local raw_data directory and fix config path
     build_reference_from_raw(
         raw_dir="./raw_data",
-        config_path="data_analyzer/config.yaml",
+        config_path="unified_config.yaml",
         n_batches=5,   # Use fewer batches for faster processing
     )
 
