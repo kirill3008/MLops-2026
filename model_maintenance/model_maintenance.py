@@ -1,8 +1,3 @@
-"""
-Stage 6: Model Maintenance Module
-Handles model packaging, performance monitoring, and runtime adaptation
-"""
-
 import sys
 import time
 import psutil
@@ -19,7 +14,6 @@ logger = logging.getLogger(__name__)
 
 
 class PerformanceMonitor:
-    """Monitor model performance metrics"""
     
     def __init__(self, config: Dict[str, Any]):
         self.config = config
@@ -27,7 +21,6 @@ class PerformanceMonitor:
         self.performance_thresholds = config.get('performance_thresholds', {})
     
     def measure_inference_time(self, model, X_test):
-        """Measure inference time for a model"""
         start_time = time.time()
         predictions = model.predict(X_test)
         inference_time = time.time() - start_time
@@ -35,16 +28,14 @@ class PerformanceMonitor:
         return inference_time, len(X_test)
     
     def measure_memory_usage(self):
-        """Measure current memory usage"""
         process = psutil.Process()
         memory_info = process.memory_info()
         return {
-            'rss_mb': memory_info.rss / 1024 / 1024,  # Resident Set Size
-            'vms_mb': memory_info.vms / 1024 / 1024,  # Virtual Memory Size
+            'rss_mb': memory_info.rss / 1024 / 1024, 
+            'vms_mb': memory_info.vms / 1024 / 1024,  
         }
     
     def check_performance_thresholds(self, metrics: Dict[str, Any]) -> bool:
-        """Check if model meets performance thresholds"""
         thresholds = self.performance_thresholds
         
         violations = []
@@ -68,7 +59,6 @@ class PerformanceMonitor:
         return True
     
     def record_metrics(self, model_name: str, metrics: Dict[str, Any]):
-        """Record performance metrics with timestamp"""
         record = {
             'timestamp': datetime.now().isoformat(),
             'model_name': model_name,
@@ -77,7 +67,6 @@ class PerformanceMonitor:
         self.metrics_history.append(record)
     
     def get_performance_trend(self, model_name: str, metric: str) -> List[float]:
-        """Get trend for specific metric"""
         values = []
         for record in self.metrics_history:
             if record['model_name'] == model_name and metric in record['metrics']:
@@ -86,7 +75,6 @@ class PerformanceMonitor:
 
 
 class ModelPackager:
-    """Handle model packaging and serialization"""
     
     def __init__(self, registry_path: str):
         self.registry_path = registry_path
@@ -95,26 +83,21 @@ class ModelPackager:
     def package_model(self, model, model_name: str, metrics: Dict[str, Any], 
                      feature_names: Optional[List[str]] = None,
                      preprocessing_pipeline = None):
-        """Package model with metadata and preprocessing"""
         
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
         model_filename = f"{model_name}_{timestamp}.joblib"
         package_filename = f"{model_name}_{timestamp}.pkg"
         
-        # Create package directory
         package_dir = os.path.join(self.registry_path, f"{model_name}_{timestamp}")
         os.makedirs(package_dir, exist_ok=True)
         
-        # Save model
         model_path = os.path.join(package_dir, model_filename)
         joblib.dump(model, model_path)
         
-        # Save preprocessing pipeline if provided
         if preprocessing_pipeline:
             pipeline_path = os.path.join(package_dir, f"preprocessor_{timestamp}.joblib")
             joblib.dump(preprocessing_pipeline, pipeline_path)
         
-        # Create package metadata
         metadata = {
             'model_name': model_name,
             'timestamp': timestamp,
@@ -133,7 +116,6 @@ class ModelPackager:
         return package_dir
     
     def _get_requirements_info(self):
-        """Get installed package versions"""
         import importlib.metadata
         packages = ['pandas', 'numpy', 'scikit-learn', 'tensorflow']
         versions = {}
@@ -148,7 +130,6 @@ class ModelPackager:
         return versions
     
     def load_package(self, package_dir: str):
-        """Load packaged model"""
         metadata_path = os.path.join(package_dir, "metadata.json")
         
         if not os.path.exists(metadata_path):
@@ -160,7 +141,6 @@ class ModelPackager:
         model_path = os.path.join(package_dir, metadata['model_file'])
         model = joblib.load(model_path)
         
-        # Load preprocessing pipeline if available
         preprocessor_path = os.path.join(package_dir, f"preprocessor_{metadata['timestamp']}.joblib")
         preprocessor = None
         if os.path.exists(preprocessor_path):
@@ -170,7 +150,6 @@ class ModelPackager:
 
 
 class ModelSelector:
-    """Select best model based on performance and data characteristics"""
     
     def __init__(self, config: Dict[str, Any]):
         self.config = config
@@ -178,21 +157,17 @@ class ModelSelector:
     
     def select_best_model(self, model_performance: Dict[str, Any], 
                          data_characteristics: Dict[str, Any]) -> str:
-        """Select best model based on multiple criteria"""
         
-        # Rule 1: Performance-based selection
         performance_scores = {}
         for model_name, metrics in model_performance.items():
             score = self._calculate_performance_score(metrics)
             performance_scores[model_name] = score
         
-        # Rule 2: Data characteristics adaptation
         adaptation_scores = {}
         for model_name in model_performance.keys():
             score = self._calculate_adaptation_score(model_name, data_characteristics)
             adaptation_scores[model_name] = score
         
-        # Combine scores
         final_scores = {}
         for model_name in model_performance.keys():
             perf_weight = self.selection_rules.get('performance_weight', 0.7)
@@ -209,7 +184,6 @@ class ModelSelector:
         return best_model
     
     def _calculate_performance_score(self, metrics: Dict[str, Any]) -> float:
-        """Calculate performance score from metrics"""
         weights = {
             'accuracy': 0.3,
             'f1': 0.4,
@@ -228,32 +202,30 @@ class ModelSelector:
     
     def _calculate_adaptation_score(self, model_name: str, 
                                   data_characteristics: Dict[str, Any]) -> float:
-        """Calculate adaptation score based on data characteristics"""
         
-        # Simple rules for model adaptation
         rules = {
             'DecisionTree': {
-                'sparse_data': 0.8,    # Good with sparse data
-                'anomalous_values': 0.6,  # Moderate robustness
+                'sparse_data': 0.8,    
+                'anomalous_values': 0.6, 
                 'numerical_features': 0.7,
                 'categorical_features': 0.9,
             },
             'RandomForest': {
                 'sparse_data': 0.7,
-                'anomalous_values': 0.8,  # Good robustness
+                'anomalous_values': 0.8, 
                 'numerical_features': 0.8,
                 'categorical_features': 0.8,
             },
             'NeuralNetwork': {
-                'sparse_data': 0.5,    # Poor with sparse data
-                'anomalous_values': 0.4,  # Sensitive to anomalies
+                'sparse_data': 0.5,   
+                'anomalous_values': 0.4,  
                 'numerical_features': 0.9,
                 'categorical_features': 0.6,
             }
         }
         
         if model_name not in rules:
-            return 0.5  # Default score
+            return 0.5  
         
         model_rules = rules[model_name]
         score = 0
@@ -261,15 +233,13 @@ class ModelSelector:
         
         for char, value in data_characteristics.items():
             if char in model_rules:
-                # Higher score when model is suitable for data characteristic
-                score += model_rules[char] * (1.0 - abs(value - 0.5))  # Closer to 0.5 = balanced
+                score += model_rules[char] * (1.0 - abs(value - 0.5)) 
                 weight_sum += model_rules[char]
         
         return score / weight_sum if weight_sum > 0 else 0.5
 
 
 class ModelMaintenance:
-    """Main model maintenance orchestrator"""
     
     def __init__(self, config: Dict[str, Any]):
         self.config = config
@@ -280,15 +250,11 @@ class ModelMaintenance:
         self.best_model_metadata = None
     
     def evaluate_model_performance(self, model, model_name: str, X_test, y_test):
-        """Comprehensive model performance evaluation"""
         
-        # Measure inference time
         inference_time, n_samples = self.performance_monitor.measure_inference_time(model, X_test)
         
-        # Measure memory usage
         memory_info = self.performance_monitor.measure_memory_usage()
         
-        # Calculate metrics
         from sklearn.metrics import accuracy_score, f1_score, roc_auc_score
         
         predictions = model.predict(X_test)
@@ -306,24 +272,20 @@ class ModelMaintenance:
         if probabilities is not None:
             metrics['roc_auc'] = roc_auc_score(y_test, probabilities)
         
-        # Check performance thresholds
         meets_thresholds = self.performance_monitor.check_performance_thresholds(metrics)
         metrics['meets_thresholds'] = meets_thresholds
         
-        # Record metrics
         self.performance_monitor.record_metrics(model_name, metrics)
         
         return metrics
     
     def package_and_register_model(self, model, model_name: str, metrics: Dict[str, Any],
                                  feature_names: List[str], preprocessing_pipeline = None):
-        """Package model and register in registry"""
         
         package_dir = self.model_packager.package_model(
             model, model_name, metrics, feature_names, preprocessing_pipeline
         )
         
-        # Update best model if this model performs better
         if self._should_update_best_model(model_name, metrics):
             self.current_best_model = model
             self.best_model_metadata = {
@@ -333,7 +295,6 @@ class ModelMaintenance:
                 'timestamp': datetime.now().isoformat()
             }
             
-            # Save best model info
             best_model_info_path = os.path.join(
                 self.config.get('model_registry_path', 'model_registry'), 
                 'best_model.json'
@@ -352,37 +313,31 @@ class ModelMaintenance:
         return package_dir
     
     def _should_update_best_model(self, model_name: str, metrics: Dict[str, Any]) -> bool:
-        """Determine if this model should become the new best model"""
         
         if self.best_model_metadata is None:
             return True
         
         current_best_metrics = self.best_model_metadata['metrics']
         
-        # Compare primary metric (F1-score)
         if 'f1' in metrics and 'f1' in current_best_metrics:
             improvement_threshold = self.config.get('improvement_threshold', 0.01)
             if metrics['f1'] > current_best_metrics['f1'] + improvement_threshold:
                 return True
         
-        # If current best model doesn't meet thresholds, prioritize one that does
         if not metrics.get('meets_thresholds', True) and current_best_metrics.get('meets_thresholds', True):
             return False
         
         return False
     
     def select_model_for_prediction(self, data_characteristics: Dict[str, Any]) -> str:
-        """Select appropriate model for given data characteristics"""
         
-        # Get performance history
         performance_data = {}
-        for record in self.performance_monitor.metrics_history[-10:]:  # Last 10 records
+        for record in self.performance_monitor.metrics_history[-10:]:
             model_name = record['model_name']
             if model_name not in performance_data:
                 performance_data[model_name] = []
             performance_data[model_name].append(record['metrics'])
         
-        # Calculate average performance
         avg_performance = {}
         for model_name, metrics_list in performance_data.items():
             avg_metrics = {}
