@@ -89,6 +89,10 @@ data_analysis:
       min_confidence_abs: 0.30
       confidence_drop_ratio: 0.70   # confidence_new < confidence_ref * 0.70 -> flag
       support_drop_ratio: 0.50      # support_new < support_ref * 0.50 -> flag
+      
+    # Drift detection settings
+    drift_threshold: 0.01  # 1% significance level for statistical tests
+    min_effect_size: 0.1   # Minimum Cohen's d effect size to consider as meaningful drift
 
 # === Model Training Configuration ===
 model_training:

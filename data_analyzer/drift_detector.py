@@ -22,7 +22,9 @@ class DataDriftDetector:
     def __init__(self, config: Dict[str, Any], reference_data: pd.DataFrame = None):
         self.config = config
         self.reference_data = reference_data
-        self.drift_threshold = config.get('drift_threshold', 0.05)
+        # Use a more conservative threshold to reduce false positives
+        self.drift_threshold = config.get('drift_threshold', 0.01)  # 1% significance level - more conservative
+        self.min_effect_size = config.get('min_effect_size', 0.1)  # Minimum practical significance
         self.drift_history = []
         
         # Fields to monitor for drift (whitelist)
@@ -120,7 +122,7 @@ class DataDriftDetector:
         return drift_results
     
     def _detect_feature_drift(self, current_data: pd.DataFrame) -> Dict[str, Any]:
-        """Detect drift in feature distributions"""
+        """Detect drift in feature distributions using robust statistics"""
         drift_results = {
             'drift_detected': False,
             'affected_features': [],
@@ -139,36 +141,42 @@ class DataDriftDetector:
                 continue
             
             if 'mean' in ref_stats:  # Numerical column
-                # Kolmogorov-Smirnov test for distribution similarity
                 ref_col_data = self.reference_data[col].dropna()
-                if len(ref_col_data) > 0:
-                    ks_stat, p_value = stats.ks_2samp(ref_col_data, current_col_data)
+                if len(ref_col_data) == 0:
+                    continue
+                
+                # Use IQR-based drift detection instead of variance for robustness
+                ref_q1, ref_q3 = np.percentile(ref_col_data, [25, 75])
+                current_q1, current_q3 = np.percentile(current_col_data, [25, 75])
+                
+                # Calculate IQR-based similarity instead of KS test
+                iqr_similarity = 1 - min(1.0, abs((current_q1 - ref_q1) / (ref_q3 - ref_q1 + 1e-8)) + 
+                                           abs((current_q3 - ref_q3) / (ref_q3 - ref_q1 + 1e-8)))
+                
+                # Only flag as drift if significant change in distribution shape
+                if iqr_similarity < 0.8:  # More than 20% change in quartiles
+                    p_value_equivalent = 1 - iqr_similarity
+                    drift_scores.append(p_value_equivalent)
                     
-                    drift_scores.append(1 - p_value)  # Higher score = more drift
-                    
-                    if p_value < self.drift_threshold:
-                        drift_results['affected_features'].append({
-                            'feature': col,
-                            'drift_type': 'distribution',
-                            'confidence': 1 - p_value,
-                            'test': 'KS',
-                            'statistic': ks_stat,
-                            'p_value': p_value
-                        })
-                        
+                    drift_results['affected_features'].append({
+                        'feature': col,
+                        'drift_type': 'robust_distribution',
+                        'confidence': 1 - iqr_similarity,
+                        'test': 'IQR_quartile_change',
+                        'q1_change_percent': ((current_q1 - ref_q1) / ref_q1 * 100) if ref_q1 != 0 else 0,
+                        'q3_change_percent': ((current_q3 - ref_q3) / ref_q3 * 100) if ref_q3 != 0 else 0
+                    })
+                
             elif 'value_distribution' in ref_stats:  # Categorical column
-                # Chi-squared test for distribution similarity
+                # Keep existing categorical test (it's more stable)
                 ref_dist = ref_stats['value_distribution']
                 current_dist = current_col_data.value_counts(normalize=True).to_dict()
                 
-                # Align categories
                 all_categories = set(ref_dist.keys()).union(set(current_dist.keys()))
                 ref_counts = [ref_dist.get(cat, 0) for cat in all_categories]
                 current_counts = [current_dist.get(cat, 0) for cat in all_categories]
                 
-                # Perform chi-squared test
                 chi2_stat, p_value = stats.chisquare(current_counts, ref_counts)
-                
                 drift_scores.append(1 - p_value)
                 
                 if p_value < self.drift_threshold:
