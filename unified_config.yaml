@@ -18,7 +18,7 @@ data_collection:
     # Type of drift to simulate: 'concept', 'covariate', 'anomaly'
     drift_type: "concept"
     # Strength of drift (0.0 to 1.0)
-    drift_strength: 0.3
+    drift_strength: 0.0
     # Fields that can have drift applied (whitelist)
     drift_whitelist:
       - "CLAIM_PAID"     # Target variable - can have concept drift
@@ -98,7 +98,7 @@ data_analysis:
 model_training:
   cv_folds: 3
   data_folder: ./analyzed_data
-  drift_threshold: 0.1
+  drift_threshold: 0.01
   model_registry_path: ./model_registry
   models:
     DecisionTree:
