@@ -1,153 +1,143 @@
 # ML System for Streaming Data Processing
 
-## Project Overview
-This project implements a comprehensive MLOps pipeline for automated ML model deployment in stream data processing environments. The system handles the complete ML lifecycle including data collection, quality analysis, preprocessing, model training/updating, validation, maintenance, and comprehensive monitoring.
+## Описание проекта
 
-## 🏗️ Architectural Principles
+Проект реализует MLOps пайплайн для автоматического развертывания моделей машинного обучения в средах потоковой обработки данных. Система управляет полным жизненным циклом ML: сбор данных, анализ качества, предобработка, обучение/обновление моделей, валидация, обслуживание и мониторинг.
 
-This project follows **SOLID design principles** with a modular architecture that emphasizes maintainability and extensibility:
+---
 
-### Successfully Implemented SOLID Principles:
-- **Single Responsibility**: Each module has clear, focused responsibilities
-- **Open/Closed**: Configuration-driven extensibility without code changes  
-- **Liskov Substitution**: Consistent interfaces across model types and components
-- **Interface Segregation**: Focused, minimal interfaces between components
-- **Dependency Inversion**: Abstraction-based design with configurable implementations
+## Структура проекта
 
-### Why This Architecture Works for MLOps:
-The current structure balances practical implementation with sound architectural principles, prioritizing:
-- **Operational clarity** over theoretical purity
-- **Configuration flexibility** for research iterations  
-- **Maintainable separation** between data, training, and monitoring concerns
-- **Real-world applicability** for production MLOps environments
-
-## Project Structure
 ```
-├── data/                    # Raw datasets
-├── config.py               # ✅ Unified configuration management
-├── unified_config.yaml     # ✅ Consolidated configuration file
-├── data_collection/        # Stage 1: Data collection and streaming
-│   └── data_collection.py  # Data streaming implementation
-├── data_analyzer/          # Stage 2: Data quality and analysis  
-│   ├── dq_pipeline.py      # ✅ Enhanced data quality pipeline
-│   ├── make_ref_rules.py   # Association rules generator (Apriori)
-│   └── drift_detector.py   # ✅ Comprehensive drift detection
-├── model_pipeline/         # Stages 3-5: Data prep, training, validation
-│   └── model_pipeline.py   # Complete model pipeline
-├── model_maintenance/      # Stage 6: Model maintenance
-│   └── model_maintenance.py # Model packaging and performance monitoring
-├── model_registry/         # Model storage and versioning
-├── run.py                  # ✅ Enhanced main controller
-├── requirements.txt        # Dependencies
-└── README.md              # This file
+├── data/                    # Исходные данные
+├── config.py               # Управление конфигурацией
+├── unified_config.yaml     # Единый конфигурационный файл
+├── data_collection/        # Этап 1: Сбор данных
+│   └── data_collection.py  # Потоковая загрузка данных
+├── data_analyzer/          # Этап 2: Анализ качества данных
+│   ├── dq_pipeline.py      # Пайплайн контроля качества
+│   ├── make_ref_rules.py   # Генератор правил Apriori
+│   └── drift_detector.py   # Детекция дрифта
+├── model_pipeline/         # Этапы 3-5: Подготовка, обучение, валидация
+│   └── model_pipeline.py   # Полный пайплайн моделей
+├── model_maintenance/      # Этап 6: Обслуживание моделей
+│   └── model_maintenance.py # Упаковка и мониторинг
+├── model_registry/         # Реестр моделей
+├── doc/                    # Документация
+│   ├── CONFIG.md
+│   ├── RUN.md
+│   ├── DATA_COLLECTION.md
+│   ├── DQ_PIPELINE.md
+│   ├── DRIFT_DETECTOR.md
+│   ├── MODEL_PIPELINE.md
+│   └── MODEL_MAINTENANCE.md
+├── run.py                  # Главный контроллер
+├── requirements.txt        # Зависимости
+└── README.md              # Этот файл
 ```
 
-> **Note**: Consolidated configuration system replaces individual config files with unified management
+---
 
-## Key Features & Recent Enhancements
+## Основные возможности
 
-### ✅ **Data Drift Monitoring (NEW)**
-- **Comprehensive detection**: Feature drift, concept drift, quality drift
-- **Statistical tests**: KS-test, Chi-squared, distribution analysis
-- **Real-time monitoring**: Integrated into streaming pipeline
-- **Aggregated reporting**: Summary integration with trend analysis
-- **Visual dashboard**: Drift status indicators and confidence metrics
+### Мониторинг дрифта данных
+- Детекция дрифта признаков (covariate drift).
+- Детекция концептуального дрифта (concept drift).
+- Детекция дрифта качества данных.
+- Статистические тесты: KS-test, Chi-squared.
+- Агрегированные отчёты с трендами.
+- Визуальный дашборд.
 
-### ✅ **Consolidated Configuration System**
-- **Single source of truth**: Unified YAML configuration
-- **Programmatic access**: Type-safe configuration class
-- **Hot-reload capable**: Runtime configuration updates
-- **Section organization**: Logical grouping of pipeline parameters
+### Единая система конфигурации
+- Единый YAML-файл для всех параметров.
+- Типобезопасный доступ через класс `Config`.
+- Горячая перезагрузка конфигурации.
+- Логическая группировка параметров.
 
-### ✅ **Enhanced Model Maintenance**
-- **Performance monitoring**: Inference time, memory usage tracking
-- **Adaptive model selection**: Runtime model switching based on data characteristics
-- **Quality thresholds**: Configurable performance boundaries
-- **Version control**: Comprehensive model registry with metadata
+### Обслуживание моделей
+- Мониторинг производительности (время инференса, память).
+- Адаптивный выбор модели на основе характеристик данных.
+- Пороги качества из конфигурации.
+- Версионирование моделей с метаданными.
 
-### ✅ **Professional Reporting System**
-- **Multi-format outputs**: JSON reports, visual dashboards
-- **Comprehensive metrics**: Model performance, data quality, drift analysis
-- **Historical tracking**: Trend analysis across batches
-- **Automated generation**: Integrated with all operational modes
+### Система отчётности
+- JSON-отчёты и визуальные дашборды.
+- Метрики производительности, качества данных, дрифта.
+- Исторический анализ трендов.
+- Автоматическая генерация отчётов.
 
-## Installation
+---
 
-1. Clone the repository
+## Установка
+
 ```bash
 git clone <repository-url>
 cd MLops-2026
-```
-
-2. Install dependencies
-```bash
 pip install -r requirements.txt
 ```
 
-## Usage
+---
 
-The system supports four operational modes with enhanced functionality:
+## Использование
 
-### 1. Inference Mode
-Apply the best trained model to external data with comprehensive preprocessing:
+### 1. Режим Inference
+Применение обученной модели к новым данным:
 ```bash
-python run.py -mode "inference" -file "./test_inference_data.csv"
+python run.py -mode "inference" -file "./test_data.csv"
 ```
-**Returns**: Path to CSV file with predictions and confidence scores
+**Результат**: CSV-файл с предсказаниями.
 
-### 2. Update Mode
-Retrain/update models with new streaming data including drift-aware updates:
+### 2. Режим Update
+Инкрементальное обновление модели на новых данных:
 ```bash
 python run.py -mode "update" -batch_limit 5
 ```
-**Returns**: Boolean success status with detailed update metrics
+**Результат**: Обновлённая модель в реестре.
 
-### 3. Summary Mode
-Generate comprehensive monitoring and performance reports with drift analysis:
+### 3. Режим Summary
+Генерация отчётов о производительности и качестве:
 ```bash
 python run.py -mode "summary"
 ```
-**Returns**: Path to summary report file and visual dashboard
+**Результат**: JSON-отчёт и PNG-дашборд.
 
-### 4. Pipeline Mode (Full Workflow)
-Execute complete pipeline from data collection to model deployment:
+### 4. Режим Pipeline
+Полный цикл: обучение → обработка → обновление:
 ```bash
 python run.py -mode "pipeline" -initial_batches 3 -max_batches 20 -update_every 5
 ```
-**Returns**: Success status with performance metrics and drift analysis
+**Результат**: Обученные модели, метрики производительности.
 
-## Configuration
+---
 
-### Unified Configuration System (`unified_config.yaml`)
+## Конфигурация
 
-The project uses a consolidated configuration approach:
+### Пример `unified_config.yaml`
 
 ```yaml
-# Data Collection Configuration
 data_collection:
   batch_size: 5000
   delay: 0.01
   sources:
     - ./data/motor_data11-14lats.csv
     - ./data/motor_data14-2018.csv
+  drift_simulation:
+    enabled: false
 
-# Data Analysis with Drift Detection
 data_analysis:
+  dq:
+    enabled: true
+    thresholds:
+      max_missing_total: 0.3
+      max_duplicate_ratio: 0.1
   drift_detection:
     enabled: true
-    monitoring_fields:
-      - "CLAIM_PAID"
-      - "INSURED_VALUE"
-      - "PREMIUM"
-    thresholds:
-      feature_drift: 0.05
-      concept_drift: 0.1
+    drift_threshold: 0.05
 
-# Model Training Configuration
 model_training:
   data_folder: ./analyzed_data
-  model_registry_path: ./model_registry
   test_size: 0.2
+  cv_folds: 3
   models:
     DecisionTree:
       max_depth: [10, 15]
@@ -156,173 +146,150 @@ model_training:
     NeuralNetwork:
       hidden_layer_sizes: [[100], [100, 50]]
 
-# Model Maintenance
 model_maintenance:
   performance_thresholds:
     accuracy: 0.7
+    f1: 0.6
     recall: 0.6
+
+model_registry:
+  path: ./model_registry
 ```
-
-## Data Requirements
-
-- **Format**: CSV, XLS, or XLSX files
-- **Minimum**: 10,000+ rows, 10+ features (2+ categorical)
-- **Required**: Temporal variable for streaming simulation  
-- **Required**: Missing values (simulated or actual)
-- **Target**: Binary classification variable (CLAIM_PAID)
-
-## Implementation Details
-
-### Stage 1: Data Collection ✅
-- **Batch streaming** with configurable size and delay
-- **Multiple data sources** support with load balancing
-- **Metadata calculation** and progress tracking
-- **Error handling** and comprehensive logging
-
-### Stage 2: Data Analysis ✅  
-- **Data Quality assessment** with Apriori association rules
-- **Automated EDA** with statistical profiling
-- **Data drift detection** with multiple statistical tests
-- **Quality threshold** enforcement and reporting
-
-### Stage 3: Data Preparation ✅
-- **Missing value imputation** with adaptive strategies
-- **Categorical encoding** with label preservation
-- **Numerical standardization** with outlier handling
-- **Pipeline-based preprocessing** for consistency
-
-### Stage 4: Model Training/Updating ✅
-- **Multiple model types**: Decision Tree, Random Forest, Neural Network
-- **Hyperparameter optimization** with GridSearchCV
-- **Incremental learning** with warm-start capability
-- **Cross-validation** with time-series awareness
-
-### Stage 5: Model Validation ✅
-- **Comprehensive metrics**: ROC-AUC, F1, Precision, Recall
-- **Model interpretation** with SHAP analysis
-- **Version control** with performance tracking
-- **Drift monitoring** with adaptive thresholds
-
-### Stage 6: Model Maintenance ✅  
-- **Automated packaging** with joblib serialization
-- **Performance monitoring** with resource tracking
-- **Adaptive selection** based on data characteristics
-- **Quality assurance** with configurable thresholds
-
-### Stage 7: Program Management ✅
-- **CLI interface** with four operational modes
-- **Unified configuration** management
-- **Comprehensive logging** and error handling
-- **Professional reporting** with visualization
-
-## Model Types Implemented
-
-### 1. **Decision Tree Classifier**
-- Interpretable baseline model
-- GridSearch optimization
-- Feature importance analysis
-
-### 2. **Random Forest Classifier**  
-- Ensemble method for robust performance
-- Warm-start incremental learning
-- Comprehensive feature interpretation
-
-### 3. **Neural Network Classifier**
-- Deep learning capability
-- Adaptive architecture search
-- Non-linear pattern detection
-
-## Data Quality & Drift Monitoring
-
-### Association Rule Validation
-- **Apriori algorithm** implementation
-- Customizable quality thresholds  
-- Automated consistency checks
-- Rule-based data validation
-
-### Drift Detection System
-- **Feature drift**: KS-test for numerical, Chi-squared for categorical
-- **Concept drift**: Target distribution analysis with PSI/KL divergence
-- **Quality drift**: Missing value and outlier pattern changes
-- **Trend analysis**: Historical drift pattern tracking
-
-### Monitoring Dashboard
-- **Real-time status**: Drift indicators with confidence scores
-- **Historical trends**: Drift rate and pattern analysis
-- **Feature impact**: Most frequently affected features
-- **Severity classification**: Low/medium/high drift levels
-
-## Performance Characteristics
-
-### Resource Usage
-- **Memory efficient**: Batch processing with streaming
-- **CPU optimized**: Parallel model training
-- **Storage smart**: Incremental model versioning
-- **Time aware**: Efficient inference pipelines
-
-### Scalability
-- **Horizontal scaling**: Multiple data source support
-- **Vertical optimization**: Resource-aware processing
-- **Batch adaptation**: Dynamic batch size adjustment
-- **Model efficiency**: Lightweight inference models
-
-## Team Information & Responsibilities
-
-**Project**: MLOps Pipeline for Streaming Data  
-**Course**: Intelligent Data Analysis  
-**Track**: MLOps  
-**Deadline**: Task 1 - March 23, 2026  
-
-### Team Member Responsibilities:
-- **Data Analysis (Stage 2)**: Enhanced drift detection and quality monitoring
-- **Model Maintenance (Stage 6)**: Performance tracking and adaptive selection  
-- **Program Management (Stage 7)**: CLI interface and comprehensive reporting
-
-## Testing & Validation
-
-### Operational Mode Testing
-All four operational modes have been validated:
-1. **Inference**: ✅ Working with proper data validation
-2. **Update**: ✅ Functional with model versioning
-3. **Summary**: ✅ Comprehensive reporting with visualization
-4. **Pipeline**: ✅ Full workflow execution with drift monitoring
-
-### Integration Testing
-- **Configuration system**: ✅ Unified config loading and validation
-- **Data pipeline**: ✅ End-to-end streaming and processing
-- **Model lifecycle**: ✅ Training, validation, maintenance integration
-- **Monitoring system**: ✅ Real-time drift detection and reporting
-
-## Contributing Guidelines
-
-This project follows specific implementation requirements:
-- **No external MLOps platforms** (MLFlow, AirFlow, etc.)
-- **Standard Python libraries** (scikit-learn, pandas, numpy)
-- **Modular architecture** with clear separation of concerns
-- **Configuration-driven** implementation for flexibility
-
-## License
-
-This project is part of academic coursework at the Department of Intelligent Information Technologies.
-
-## Future Enhancements
-
-### Planned for Task 2:
-- **Docker containerization** for deployment
-- **CI/CD pipeline** integration
-- **Advanced monitoring** with alerting
-- **Database integration** for production use
-- **API endpoint** for remote inference
-
-### Research Directions:
-- **Advanced drift detection** with machine learning
-- **Automated hyperparameter** optimization
-- **Federated learning** capabilities
-- **Explainable AI** integration
-- **Multi-modal data** support
 
 ---
 
-**Last Updated**: March 23, 2026  
-**Version**: 1.0 (Task 1 Completion)  
-**Status**: ✅ Production Ready
+## Требования к данным
+
+- **Формат**: CSV, XLS, XLSX.
+- **Минимум**: 10,000+ строк, 10+ признаков (из них 2+ категориальных).
+- **Обязательно**: Временная переменная для симуляции потока.
+- **Обязательно**: Пропущенные значения (реальные или симулированные).
+- **Целевая переменная**: Бинарная классификация (CLAIM_PAID).
+
+---
+
+## Этапы реализации
+
+### Этап 1: Сбор данных
+- Потоковая загрузка с настраиваемым размером батча.
+- Поддержка нескольких источников данных.
+- Расчёт метаданных.
+- Симуляция дрифта (опционально).
+
+### Этап 2: Анализ данных
+- Оценка качества данных с правилами Apriori.
+- Детекция дрифта (статистические тесты).
+- Проверка порогов качества.
+- Генерация отчётов.
+
+### Этап 3: Подготовка данных
+- Импутация пропусков.
+- Кодирование категориальных переменных.
+- Нормализация числовых признаков.
+- Создание инженерных признаков.
+
+### Этап 4: Обучение моделей
+- Поддержка моделей: Decision Tree, Random Forest, Neural Network.
+- Оптимизация гиперпараметров (GridSearchCV).
+- Инкрементальное обучение (warm-start).
+- Кросс-валидация.
+
+### Этап 5: Валидация моделей
+- Метрики: ROC-AUC, F1, Precision, Recall, Accuracy.
+- Интерпретация моделей (SHAP).
+- Версионирование с отслеживанием производительности.
+- Мониторинг дрифта.
+
+### Этап 6: Обслуживание моделей
+- Автоматическая упаковка (joblib).
+- Мониторинг производительности.
+- Адаптивный выбор модели.
+- Проверка порогов качества.
+
+### Этап 7: Управление программой
+- CLI-интерфейс с 4 режимами.
+- Единая система конфигурации.
+- Логирование и обработка ошибок.
+- Генерация отчётов с визуализацией.
+
+---
+
+## Реализованные модели
+
+### 1. Decision Tree Classifier
+- Интерпретируемая базовая модель.
+- GridSearch оптимизация.
+- Анализ важности признаков.
+
+### 2. Random Forest Classifier
+- Ансамблевый метод.
+- Инкрементальное обучение (warm-start).
+- Интерпретация через feature importance.
+
+### 3. Neural Network Classifier
+- Глубокое обучение.
+- Адаптивная архитектура.
+- Обнаружение нелинейных паттернов.
+
+---
+
+## Контроль качества и дрифта
+
+### Валидация ассоциативных правил
+- Алгоритм Apriori.
+- Настраиваемые пороги качества.
+- Автоматические проверки консистентности.
+
+### Система детекции дрифта
+- **Feature drift**: KS-test (числовые), Chi-squared (категориальные).
+- **Concept drift**: Анализ распределения целевой переменной.
+- **Quality drift**: Изменения пропусков и выбросов.
+- **Анализ трендов**: Историческое отслеживание паттернов.
+
+### Дашборд мониторинга
+- Индикаторы дрифта в реальном времени.
+- Исторические тренды.
+- Влияние на признаки.
+- Классификация по уровням серьёзности.
+
+---
+
+## Информация о команде
+
+**Проект**: MLOps Pipeline для потоковых данных  
+**Курс**: Интеллектуальный анализ данных  
+**Трек**: MLOps  
+**Дедлайн**: Задание 1 - 23 марта 2026
+
+### Обязанности участников:
+- **Анализ данных (Этап 2)**: Детекция дрифта и мониторинг качества.
+- **Обслуживание моделей (Этап 6)**: Мониторинг производительности и адаптивный выбор.
+- **Управление программой (Этап 7)**: CLI-интерфейс и система отчётности.
+
+---
+
+## Тестирование
+
+### Режимы работы
+Все четыре режима протестированы:
+1. **Inference**: ✅ Работает с валидацией данных.
+2. **Update**: ✅ Функционирует с версионированием моделей.
+3. **Summary**: ✅ Полная отчётность с визуализацией.
+4. **Pipeline**: ✅ Выполнение всего workflow с мониторингом дрифта.
+
+### Интеграционное тестирование
+- **Система конфигурации**: ✅ Загрузка и валидация.
+- **Пайплайн данных**: ✅ End-to-end обработка.
+- **Жизненный цикл моделей**: ✅ Обучение, валидация, обслуживание.
+- **Система мониторинга**: ✅ Детекция дрифта в реальном времени.
+
+---
+
+## Ограничения реализации
+
+Проект следует требованиям задания:
+- **Без внешних MLOps платформ** (MLFlow, AirFlow и т.д.).
+- **Стандартные библиотеки Python** (scikit-learn, pandas, numpy).
+- **Модульная архитектура** с чёткими границами компонентов.
+- **Конфигурируемость** через YAML-файлы.
+
