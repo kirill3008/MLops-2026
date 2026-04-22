@@ -1,32 +1,14 @@
 # MLOps Pipeline Requirements
 # Project: ML System for Streaming Data Processing
 
-# Core data processing with compatible versions
-pandas==1.5.3
-numpy==1.24.3  # Compatible with scipy
-scikit-learn==1.3.0
+pandas==2.3.1
+numpy==2.0.2
+scikit-learn==1.6.1
+joblib==1.5.1
+matplotlib==3.9.4
+seaborn==0.13.2
+shap==0.48.0
+pyyaml==6.0.2
+psutil==7.0.0
+tqdm==4.67.1
 
-# Machine learning frameworks
-joblib==1.3.2
-
-# Data analysis and visualization
-matplotlib==3.7.2
-seaborn==0.12.2
-shap==0.42.1
-
-# Association rules (data quality)
-mlxtend==0.22.0
-
-# Configuration and serialization
-pyyaml==6.0.1
-
-# Additional utilities
-psutil==5.9.5  # For performance monitoring
-tqdm==4.65.0   # For progress bars
-
-# Development and testing
-pytest==7.4.0
-pytest-cov==4.1.0
-
-# Logging
-colorlog==6.8.0
